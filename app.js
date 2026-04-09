@@ -40,95 +40,14 @@ const isMesAtual = (dataIso) => {
 const getNomeMesAtual = () => new Intl.DateTimeFormat('pt-BR', { month: 'long', year: 'numeric' }).format(new Date());
 
 // ==========================================
-// GESTÃO DE DADOS (HÍBRIDA: NUVEM + LOCAL)
-// ==========================================
-
-async function carregarDados() {
-  // 1. Tentar carregar do Supabase primeiro
-  if (supabase) {
-    try {
-      const [it, rec, cli, enc, hist, cong] = await Promise.all([
-        supabase.from('itens').select('*'),
-        supabase.from('receitas').select('*'),
-        supabase.from('clientes').select('*'),
-        supabase.from('encomendas').select('*'),
-        supabase.from('historico').select('*').order('quando', { ascending: false }).limit(100),
-        supabase.from('congelados').select('*')
-      ]);
-
-      // Só sobrescrever o estado se houver algum dado na nuvem
-      if (!it.error && (it.data.length > 0 || rec.data.length > 0)) {
-        state.itens = it.data.map(i => ({...i, quantidade: Number(i.quantidade), custoMedio: Number(i.custo_medio), estoqueMinimo: Number(i.estoque_minimo)}));
-        state.receitas = rec.data.map(r => ({...r, rendimento: Number(r.rendimento), precoVenda: Number(r.preco_venda)}));
-        state.clientes = cli.data.map(c => ({...c, ultimaConversa: c.ultima_conversa}));
-        state.encomendas = enc.data.map(e => ({...e, clienteId: e.cliente_id, valorTotal: Number(e.valor_total)}));
-        state.historico = hist.data.map(h => ({...h, id: h.id || uid(), itemId: h.item_id, receitaId: h.receita_id, detalhesIngredientes: h.detalhes_ingredientes}));
-        
-        state.congelados = {};
-        cong.data.forEach(c => { state.congelados[c.receita_id] = Number(c.quantidade); });
-        
-        salvarNoNavegador();
-        return true;
-      }
-    } catch (e) { console.error("Falha ao baixar da nuvem, usando local:", e); }
-  }
-
-  // 2. Fallback para LocalStorage
-  const raw = localStorage.getItem(STORAGE_KEY);
-  if (raw) {
-    const data = JSON.parse(raw);
-    state.itens = data.itens || [];
-    state.receitas = data.receitas || [];
-    state.clientes = data.clientes || [];
-    state.encomendas = data.encomendas || [];
-    state.historico = (data.historico || []).map(h => ({...h, id: h.id || uid()}));
-    state.congelados = data.congelados || {};
-  }
-  return false;
-}
-
-function salvarNoNavegador() {
-  localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
-}
-
-async function sincronizar(tabela, dados, idExcluir = null) {
-  salvarNoNavegador();
-  if (!supabase) return;
-  try {
-    if (idExcluir) {
-      await supabase.from(tabela).delete().eq('id', idExcluir);
-    } else if (tabela === 'congelados') {
-      const lista = Object.entries(state.congelados).map(([rid, qtd]) => ({ receita_id: rid, quantidade: qtd }));
-      await supabase.from('congelados').upsert(lista);
-    } else {
-      const payload = Array.isArray(dados) ? dados : [dados];
-      const formatado = payload.map(d => {
-        const n = {...d};
-        if (n.custoMedio !== undefined) { n.custo_medio = n.custoMedio; delete n.custoMedio; }
-        if (n.estoqueMinimo !== undefined) { n.estoque_minimo = n.estoqueMinimo; delete n.estoqueMinimo; }
-        if (n.precoVenda !== undefined) { n.preco_venda = n.precoVenda; delete n.precoVenda; }
-        if (n.ultimaConversa !== undefined) { n.ultima_conversa = n.ultimaConversa; delete n.ultimaConversa; }
-        if (n.clienteId !== undefined) { n.cliente_id = n.clienteId; delete n.clienteId; }
-        if (n.valorTotal !== undefined) { n.valor_total = n.valorTotal; delete n.valorTotal; }
-        if (n.itemId !== undefined) { n.item_id = n.itemId; delete n.itemId; }
-        if (n.receitaId !== undefined) { n.receita_id = n.receitaId; delete n.receitaId; }
-        if (n.detalhesIngredientes !== undefined) { n.detalhes_ingredientes = n.detalhesIngredientes; delete n.detalhesIngredientes; }
-        return n;
-      });
-      await supabase.from(tabela).upsert(formatado);
-    }
-  } catch (e) { console.error("Erro ao sincronizar:", e); }
-}
-
-// ==========================================
-// AÇÕES GLOBAIS
+// AÇÕES GLOBAIS (Devem estar no topo)
 // ==========================================
 
 window.migrarParaNuvem = async () => {
-  if (!supabase) { toast("Supabase não configurado corretamente.", true); return; }
+  if (!supabase) { toast("Supabase não configurado.", true); return; }
   if (!confirm("Isso vai enviar TODOS os dados salvos neste computador para a nuvem. Confirma?")) return;
   
-  toast("Enviando dados... aguarde.");
+  toast("Enviando dados...");
   try {
     await Promise.all([
       sincronizar('itens', state.itens),
@@ -140,10 +59,7 @@ window.migrarParaNuvem = async () => {
     ]);
     toast("✅ Sincronização concluída!");
     renderizar();
-  } catch (err) {
-    console.error(err);
-    toast("Erro ao sincronizar dados.", true);
-  }
+  } catch (err) { console.error(err); toast("Erro ao sincronizar.", true); }
 };
 
 window.reverterLancamento = async (id) => {
@@ -258,6 +174,85 @@ window.excluir = async (tabela, id) => {
 };
 
 // ==========================================
+// GESTÃO DE DADOS
+// ==========================================
+
+async function carregarDados() {
+  if (supabase) {
+    try {
+      const [it, rec, cli, enc, hist, cong] = await Promise.all([
+        supabase.from('itens').select('*'),
+        supabase.from('receitas').select('*'),
+        supabase.from('clientes').select('*'),
+        supabase.from('encomendas').select('*'),
+        supabase.from('historico').select('*').order('quando', { ascending: false }).limit(100),
+        supabase.from('congelados').select('*')
+      ]);
+
+      if (!it.error && (it.data?.length > 0 || rec.data?.length > 0)) {
+        state.itens = it.data.map(i => ({...i, quantidade: Number(i.quantidade), custoMedio: Number(i.custo_medio), estoqueMinimo: Number(i.estoque_minimo)}));
+        state.receitas = rec.data.map(r => ({...r, rendimento: Number(r.rendimento), precoVenda: Number(r.preco_venda)}));
+        state.clientes = cli.data.map(c => ({...c, ultimaConversa: c.ultima_conversa}));
+        state.encomendas = enc.data.map(e => ({...e, clienteId: e.cliente_id, valorTotal: Number(e.valor_total)}));
+        state.historico = hist.data.map(h => ({...h, id: h.id || uid(), itemId: h.item_id, receitaId: h.receita_id, detalhesIngredientes: h.detalhes_ingredientes}));
+        state.congelados = {};
+        cong.data?.forEach(c => { state.congelados[c.receita_id] = Number(c.quantidade); });
+        salvarNoNavegador();
+        return true;
+      }
+    } catch (e) { console.error("Erro nuvem:", e); }
+  }
+
+  const raw = localStorage.getItem(STORAGE_KEY);
+  if (raw) {
+    const data = JSON.parse(raw);
+    state.itens = data.itens || [];
+    state.receitas = data.receitas || [];
+    state.clientes = data.clientes || [];
+    state.encomendas = data.encomendas || [];
+    state.historico = (data.historico || []).map(h => ({...h, id: h.id || uid()}));
+    state.congelados = data.congelados || {};
+  }
+  return false;
+}
+
+function salvarNoNavegador() { localStorage.setItem(STORAGE_KEY, JSON.stringify(state)); }
+
+async function sincronizar(tabela, dados, idExcluir = null) {
+  salvarNoNavegador();
+  if (!supabase) return;
+  try {
+    if (idExcluir) {
+      await supabase.from(tabela).delete().eq('id', idExcluir);
+    } else if (tabela === 'congelados') {
+      const lista = Object.entries(state.congelados).map(([rid, qtd]) => ({ receita_id: rid, quantidade: qtd }));
+      await supabase.from('congelados').upsert(lista);
+    } else {
+      const payload = Array.isArray(dados) ? dados : [dados];
+      const formatado = payload.map(d => {
+        const n = {...d};
+        if (n.custoMedio !== undefined) { n.custo_medio = n.custoMedio; delete n.custoMedio; }
+        if (n.estoqueMinimo !== undefined) { n.estoque_minimo = n.estoqueMinimo; delete n.estoqueMinimo; }
+        if (n.precoVenda !== undefined) { n.preco_venda = n.precoVenda; delete n.precoVenda; }
+        if (n.ultimaConversa !== undefined) { n.ultima_conversa = n.ultimaConversa; delete n.ultimaConversa; }
+        if (n.clienteId !== undefined) { n.cliente_id = n.clienteId; delete n.clienteId; }
+        if (n.valorTotal !== undefined) { n.valor_total = n.valorTotal; delete n.valorTotal; }
+        if (n.itemId !== undefined) { n.item_id = n.itemId; delete n.itemId; }
+        if (n.receitaId !== undefined) { n.receita_id = n.receitaId; delete n.receitaId; }
+        if (n.detalhesIngredientes !== undefined) { n.detalhes_ingredientes = n.detalhesIngredientes; delete n.detalhesIngredientes; }
+        return n;
+      });
+      await supabase.from(tabela).upsert(formatado);
+    }
+  } catch (e) { console.error("Erro sincronia:", e); }
+}
+
+function toast(msg, erro = false) {
+  const t = document.getElementById("toast");
+  if (t) { t.textContent = msg; t.classList.toggle("erro", erro); t.classList.add("show"); setTimeout(() => t.classList.remove("show"), 3000); }
+}
+
+// ==========================================
 // RENDERIZAÇÃO
 // ==========================================
 
@@ -279,16 +274,7 @@ function renderizar() {
 
     const listaEstoque = document.getElementById("lista-estoque");
     if (listaEstoque) {
-      listaEstoque.innerHTML = state.itens.sort((a,b) => (a.nome || "").localeCompare(b.nome || "")).map(it => `
-        <li class="item-estoque">
-          <div class="item-col-principal">
-            <strong class="nome">${escapeHtml(it.nome)}</strong>
-            <small class="item-preco-linha">Custo: ${formatarMoedaLonga(it.custoMedio)} / ${it.unidade} | Capital: <span class="subtotal">${formatarMoeda(it.quantidade * it.custoMedio)}</span></small>
-          </div>
-          <span class="saldo ${it.estoqueMinimo > 0 && it.quantidade <= it.estoqueMinimo ? 'alerta-baixo' : ''}">
-            ${formatarQtd(it.quantidade)} ${it.unidade}
-          </span>
-        </li>`).join("");
+      listaEstoque.innerHTML = state.itens.sort((a,b) => (a.nome || "").localeCompare(b.nome || "")).map(it => `<li class="item-estoque"><div class="item-col-principal"><strong class="nome">${escapeHtml(it.nome)}</strong><small class="item-preco-linha">Custo: ${formatarMoedaLonga(it.custoMedio)} / ${it.unidade} | Capital: <span class="subtotal">${formatarMoeda(it.quantidade * it.custoMedio)}</span></small></div><span class="saldo ${it.estoqueMinimo > 0 && it.quantidade <= it.estoqueMinimo ? 'alerta-baixo' : ''}">${formatarQtd(it.quantidade)} ${it.unidade}</span></li>`).join("");
     }
 
     const listaCong = document.getElementById("lista-congelados");
@@ -309,75 +295,34 @@ function renderizar() {
         const noFreezer = (enc.produtos || []).length > 0 && (enc.produtos || []).every(p => (state.congelados[p.receitaId || p.id] || 0) >= p.quantidade);
         let infoEstoque = noFreezer ? '<div class="enc-banner ok">✅ Disponível no Freezer!</div>' : 
           `<div class="enc-banner ${validarEstoqueEncomenda(enc).length ? 'falta' : 'ok'}">${validarEstoqueEncomenda(enc).length ? `<strong>⚠️ Faltam ingredientes:</strong><ul>${validarEstoqueEncomenda(enc).map(f => `<li>${f.nome}: ${formatarQtd(f.falta)} ${f.unidade}</li>`).join("")}</ul>` : '✅ Insumos em estoque!'}</div>`;
-
-        return `<article class="card-encomenda ${st.entregue ? 'entregue' : ''}">
-          <header><div style="flex:1">
-            <div class="flex-row" style="justify-content:space-between; align-items: flex-start; margin-bottom:0.5rem">
-              <span class="badge-alerta" style="background:var(--money); color:var(--surface); padding:0.2rem 0.6rem">📅 Entrega: ${formatarData(enc.dataEntrega)}</span>
-              <span style="font-weight:700; color:${st.pago ? 'var(--accent-in)' : 'var(--text)'}; font-size:1.1rem">${formatarMoeda(enc.valorTotal)}</span>
-            </div>
-            <h3 class="enc-titulo">${escapeHtml(enc.titulo || 'Pedido de ' + (cli?.nome || 'Cliente'))}</h3>
-            <p class="enc-meta">Cliente: ${escapeHtml(cli?.nome || '?')}</p>
-          </div><button class="btn-mini" onclick="excluir('encomendas', '${enc.id}')">X</button></header>
-          ${infoEstoque}
-          <div class="enc-status-grid">
-            <label class="enc-check-label"><input type="checkbox" ${st.pago ? 'checked' : ''} onchange="toggleStatus('${enc.id}', 'pago')"> Pago</label>
-            <label class="enc-check-label"><input type="checkbox" ${st.massaFeita ? 'checked' : ''} onchange="toggleStatus('${enc.id}', 'massaFeita')"> Massa</label>
-            <label class="enc-check-label"><input type="checkbox" ${st.assado ? 'checked' : ''} onchange="toggleStatus('${enc.id}', 'assado')"> Assado</label>
-            <label class="enc-check-label"><input type="checkbox" ${st.tudoPronto ? 'checked' : ''} onchange="toggleStatus('${enc.id}', 'tudoPronto')"> Pronto</label>
-            <label class="enc-check-label"><input type="checkbox" ${st.entregue ? 'checked' : ''} onchange="toggleStatus('${enc.id}', 'entregue')"> Entregue</label>
-          </div></article>`;
+        return `<article class="card-encomenda ${st.entregue ? 'entregue' : ''}"><header><div style="flex:1"><div class="flex-row" style="justify-content:space-between; align-items: flex-start; margin-bottom:0.5rem"><span class="badge-alerta" style="background:var(--money); color:var(--surface); padding:0.2rem 0.6rem">📅 Entrega: ${formatarData(enc.dataEntrega)}</span><span style="font-weight:700; color:${st.pago ? 'var(--accent-in)' : 'var(--text)'}; font-size:1.1rem">${formatarMoeda(enc.valorTotal)}</span></div><h3 class="enc-titulo">${escapeHtml(enc.titulo || 'Pedido de ' + (cli?.nome || 'Cliente'))}</h3><p class="enc-meta">Cliente: ${escapeHtml(cli?.nome || '?')}</p></div><button class="btn-mini" onclick="excluir('encomendas', '${enc.id}')">X</button></header>${infoEstoque}<div class="enc-status-grid"><label class="enc-check-label"><input type="checkbox" ${st.pago ? 'checked' : ''} onchange="toggleStatus('${enc.id}', 'pago')"> Pago</label><label class="enc-check-label"><input type="checkbox" ${st.massaFeita ? 'checked' : ''} onchange="toggleStatus('${enc.id}', 'massaFeita')"> Massa</label><label class="enc-check-label"><input type="checkbox" ${st.assado ? 'checked' : ''} onchange="toggleStatus('${enc.id}', 'assado')"> Assado</label><label class="enc-check-label"><input type="checkbox" ${st.tudoPronto ? 'checked' : ''} onchange="toggleStatus('${enc.id}', 'tudoPronto')"> Pronto</label><label class="enc-check-label"><input type="checkbox" ${st.entregue ? 'checked' : ''} onchange="toggleStatus('${enc.id}', 'entregue')"> Entregue</label></div></article>`;
       }).join("");
 
-      const listaComprasEl = document.getElementById("lista-compras-consolidada");
-      if (listaComprasEl) {
-        const necessidades = {};
-        pedidosAtivos.forEach(enc => {
-          (enc.produtos || []).forEach(p => {
-            const qtdNoFreezer = state.congelados[p.receitaId || p.id] || 0;
-            const qtdAFazer = Math.max(0, p.quantidade - qtdNoFreezer);
-            if (qtdAFazer > 0) {
-              const rec = state.receitas.find(r => r.id === (p.receitaId || p.id));
-              if (rec) (rec.ingredientes || []).forEach(ing => { necessidades[ing.itemId] = (necessidades[ing.itemId] || 0) + (Number(ing.quantidade) * qtdAFazer); });
-            }
-          });
-        });
-        const paraComprar = [];
-        for (const itemId in necessidades) {
-          const item = state.itens.find(i => i.id === itemId);
-          const falta = necessidades[itemId] - (item?.quantidade || 0);
-          if (falta > 0) paraComprar.push({ nome: item?.nome || "Insumo", qtd: falta, un: item?.unidade || "" });
-        }
-        listaComprasEl.innerHTML = paraComprar.length ? `<strong>📋 Lista de Compras:</strong><ul>${paraComprar.map(it => `<li>${it.nome}: <strong>${formatarQtd(it.qtd)} ${it.un}</strong></li>`).join("")}</ul>` : (pedidosAtivos.length ? "✅ Tudo pronto!" : "Sem pedidos.");
-        listaComprasEl.className = `enc-banner ${paraComprar.length ? 'falta' : 'ok'}`;
+      const lComp = document.getElementById("lista-compras-consolidada");
+      if (lComp) {
+        const nTot = {};
+        pedidosAtivos.forEach(e => (e.produtos || []).forEach(p => { const qF = state.congelados[p.receitaId || p.id] || 0; const qA = Math.max(0, p.quantidade - qF); if (qA > 0) { const r = state.receitas.find(x => x.id === (p.receitaId || p.id)); if (r) (r.ingredientes || []).forEach(ing => { nTot[ing.itemId] = (nTot[ing.itemId] || 0) + (Number(ing.quantidade) * qA); }); } }));
+        const pComp = [];
+        for (const tid in nTot) { const it = state.itens.find(i => i.id === tid); const f = nTot[tid] - (it?.quantidade || 0); if (f > 0) pComp.push({ nome: it?.nome || "Item", q: f, un: it?.unidade || "" }); }
+        lComp.innerHTML = pComp.length ? `<strong>📋 Lista de Compras:</strong><ul>${pComp.map(it => `<li>${it.nome}: <strong>${formatarQtd(it.q)} ${it.un}</strong></li>`).join("")}</ul>` : (pedidosAtivos.length ? "✅ Tudo pronto!" : "Sem pedidos.");
+        lComp.className = `enc-banner ${pComp.length ? 'falta' : 'ok'}`;
       }
     }
 
     const cap = state.itens.reduce((acc, i) => acc + (i.quantidade * i.custoMedio), 0);
-    const lucRealMes = state.historico.reduce((acc, h) => (h.tipo === 'producao' && h.lucro && isMesAtual(h.quando)) ? acc + h.lucro : acc, 0);
-    const lucPot = cap > 0 ? (cap * 3.7) - cap : 0;
+    const lucR = state.historico.reduce((acc, h) => (h.tipo === 'producao' && h.lucro && isMesAtual(h.quando)) ? acc + h.lucro : acc, 0);
+    const lucP = cap > 0 ? (cap * 3.7) - cap : 0;
     if (document.getElementById("valor-total")) document.getElementById("valor-total").textContent = formatarMoeda(cap);
-    if (document.getElementById("lucro-producoes")) {
-      document.getElementById("lucro-producoes").textContent = formatarMoeda(lucRealMes);
-      document.getElementById("lucro-producoes").parentElement.querySelector("h3").textContent = `📈 Lucro em ${getNomeMesAtual()}`;
-    }
-    if (document.getElementById("lucro-markup-estoque")) document.getElementById("lucro-markup-estoque").textContent = formatarMoeda(lucPot);
+    if (document.getElementById("lucro-producoes")) document.getElementById("lucro-producoes").textContent = formatarMoeda(lucR);
+    if (document.getElementById("lucro-markup-estoque")) document.getElementById("lucro-markup-estoque").textContent = formatarMoeda(lucP);
 
     const dSabor = document.getElementById("lista-desempenho-sabores");
     if (dSabor) {
-      const pedMes = state.encomendas.filter(e => isMesAtual(e.dataEntrega));
-      const stats = {};
-      pedMes.forEach(e => (e.produtos || []).forEach(p => {
-        const id = p.receitaId || p.id;
-        if (!stats[id]) { const r = state.receitas.find(x => x.id === id); stats[id] = { nome: r?.nome || '?', qtd: 0, rObj: r }; }
-        stats[id].qtd += Number(p.quantidade);
-      }));
-      const sArr = Object.values(stats).sort((a,b) => b.qtd - a.qtd);
-      dSabor.innerHTML = sArr.length ? `<table class="tabela-info"><thead><tr><th>Sabor</th><th>Qtd</th><th>Lucro Est.</th></tr></thead><tbody>${sArr.map(s => {
-        const c = s.rObj ? calcularCustoReceita(s.rObj) : 0;
-        const l = s.rObj ? ((s.rObj.precoVenda - c) / s.rObj.rendimento) * s.qtd : 0;
-        return `<tr><td><strong>${s.nome}</strong></td><td style="text-align:center">${s.qtd} un</td><td style="text-align:right; color:var(--accent-in)">${formatarMoeda(l)}</td></tr>`;
-      }).join("")}</tbody></table>` : '<p class="muted-small">Nenhuma venda entregue este mês.</p>';
+      const pMes = state.encomendas.filter(e => isMesAtual(e.dataEntrega));
+      const stS = {};
+      pMes.forEach(e => (e.produtos || []).forEach(p => { const id = p.receitaId || p.id; if (!stS[id]) { const r = state.receitas.find(x => x.id === id); stS[id] = { n: r?.nome || '?', q: 0, r: r }; } stS[id].q += Number(p.quantidade); }));
+      const sA = Object.values(stS).sort((a,b) => b.q - a.q);
+      dSabor.innerHTML = sA.length ? `<table class="tabela-info"><thead><tr><th>Sabor</th><th>Qtd</th><th>Lucro</th></tr></thead><tbody>${sA.map(s => { const c = s.r ? calcularCustoReceita(s.r) : 0; const l = s.r ? ((s.r.precoVenda - c) / s.r.rendimento) * s.q : 0; return `<tr><td><strong>${s.n}</strong></td><td style="text-align:center">${s.q}</td><td style="text-align:right; color:var(--accent-in)">${formatarMoeda(l)}</td></tr>`; }).join("")}</tbody></table>` : '<p class="muted-small">Sem vendas.</p>';
     }
 
     const lHist = document.getElementById("lista-historico-estoque");
@@ -386,8 +331,8 @@ function renderizar() {
     const listaCli = document.getElementById("lista-clientes");
     if (listaCli) {
       listaCli.innerHTML = [...state.clientes].sort((a,b) => new Date(a.ultimaConversa || 0) - new Date(b.ultimaConversa || 0)).map(c => {
-        const pCli = state.encomendas.filter(e => e.clienteId === c.id);
-        const ltv = pCli.reduce((acc, e) => acc + (Number(e.valorTotal) || 0), 0);
+        const pC = state.encomendas.filter(e => e.clienteId === c.id);
+        const ltv = pC.reduce((acc, e) => acc + (Number(e.valorTotal) || 0), 0);
         return `<article class="card-encomenda"><header><div style="flex:1"><div class="flex-row" style="justify-content:space-between; align-items: center; margin-bottom:0.5rem"><h3 class="enc-titulo">${escapeHtml(c.nome)}</h3><div style="background:var(--money-dim); color:var(--money); padding:4px 10px; border-radius:20px; font-weight:700; font-size:0.9rem">LTV: ${formatarMoeda(ltv)}</div></div><p class="enc-meta">Conversa: <strong>${formatarData(c.ultimaConversa)}</strong></p></div><div class="flex-row"><button class="btn-mini" onclick="editarCliente('${c.id}')">Editar</button>${c.whatsapp ? `<a href="https://wa.me/55${c.whatsapp.replace(/\D/g,'')}" target="_blank" class="btn-mini" style="color:#10b981; border-color:#10b981">Zap</a>` : ''}<button class="btn-mini" onclick="excluir('clientes', '${c.id}')">X</button></div></header><p style="font-size:0.85rem; color:var(--muted); margin-top:0.5rem">${escapeHtml(c.conversa || '')}</p></article>`;
       }).join("");
     }
@@ -411,27 +356,13 @@ function atualizarSelects() {
   if (selCli) { const v = selCli.value; selCli.innerHTML = '<option value="">-- Cliente --</option>' + state.clientes.map(c => `<option value="${c.id}">${c.nome}</option>`).join(""); selCli.value = v; }
 }
 
-// ==========================================
-// AUXILIARES TÉCNICOS
-// ==========================================
-
 function calcularCustoReceita(r) { return (r.ingredientes || []).reduce((acc, ing) => { const item = state.itens.find(i => i.id === ing.itemId); return acc + (Number(ing.quantidade) * (item?.custoMedio || 0)); }, 0); }
 
 function validarEstoqueEncomenda(enc) {
   const necessidades = {};
-  (enc.produtos || []).forEach(p => {
-    const qF = state.congelados[p.receitaId || p.id] || 0;
-    const qA = Math.max(0, p.quantidade - qF);
-    if (qA > 0) {
-      const rec = state.receitas.find(r => r.id === (p.receitaId || p.id));
-      if (rec) (rec.ingredientes || []).forEach(ing => { necessidades[ing.itemId] = (necessidades[ing.itemId] || 0) + (Number(ing.quantidade) * qA); });
-    }
-  });
+  (enc.produtos || []).forEach(p => { const qF = state.congelados[p.receitaId || p.id] || 0; const qA = Math.max(0, p.quantidade - qF); if (qA > 0) { const rec = state.receitas.find(r => r.id === (p.receitaId || p.id)); if (rec) (rec.ingredientes || []).forEach(ing => { necessidades[ing.itemId] = (necessidades[ing.itemId] || 0) + (Number(ing.quantidade) * qA); }); } });
   const faltas = [];
-  for (const itemId in necessidades) {
-    const item = state.itens.find(i => i.id === itemId);
-    if ((item?.quantidade || 0) < necessidades[itemId]) faltas.push({ nome: item?.nome || "Item", falta: necessidades[itemId] - (item?.quantidade || 0), unidade: item?.unidade || "" });
-  }
+  for (const itemId in necessidades) { const item = state.itens.find(i => i.id === itemId); if ((item?.quantidade || 0) < necessidades[itemId]) faltas.push({ nome: item?.nome || "Item", falta: necessidades[itemId] - (item?.quantidade || 0), unidade: item?.unidade || "" }); }
   return faltas;
 }
 
@@ -452,7 +383,6 @@ async function init() {
     };
   });
 
-  // Eventos Insumos
   document.getElementById("form-entrada").onsubmit = async (e) => {
     e.preventDefault();
     const id = document.getElementById("entrada-nome").value;
@@ -495,25 +425,21 @@ async function init() {
     }
   };
 
-  // Botões de Linhas
   document.getElementById("btn-add-ingrediente").onclick = () => {
     const div = document.createElement("div"); div.className = "enc-linha-row";
     div.innerHTML = `<select class="ing-select" required>${state.itens.sort((a,b) => a.nome.localeCompare(b.nome)).map(i => `<option value="${i.id}">${i.nome} (${i.unidade})</option>`).join("")}</select>
-      <input type="number" class="ing-qtd" step="any" placeholder="Qtd" required />
-      <button type="button" class="btn-mini" onclick="this.parentElement.remove()">X</button>`;
+      <input type="number" class="ing-qtd" step="any" placeholder="Qtd" required /><button type="button" class="btn-mini" onclick="this.parentElement.remove()">X</button>`;
     document.getElementById("ingredientes-container").appendChild(div);
   };
 
   document.getElementById("btn-add-produto-enc").onclick = () => {
     const div = document.createElement("div"); div.className = "enc-linha-row";
     div.innerHTML = `<select class="prod-select" required onchange="atualizarValorEncomenda()">${state.receitas.sort((a,b) => a.nome.localeCompare(b.nome)).map(r => `<option value="${r.id}">${r.nome}</option>`).join("")}</select>
-      <input type="number" class="prod-qtd" step="any" placeholder="Qtd" value="1" required oninput="atualizarValorEncomenda()" />
-      <button type="button" class="btn-mini" onclick="this.parentElement.remove(); atualizarValorEncomenda()">X</button>`;
+      <input type="number" class="prod-qtd" step="any" placeholder="Qtd" value="1" required oninput="atualizarValorEncomenda()" /><button type="button" class="btn-mini" onclick="this.parentElement.remove(); atualizarValorEncomenda()">X</button>`;
     document.getElementById("enc-produtos-container").appendChild(div);
     atualizarValorEncomenda();
   };
 
-  // Salvar Formulários
   document.getElementById("form-cliente").onsubmit = async (e) => {
     e.preventDefault();
     const idEdit = document.getElementById("cliente-id-edit").value;
@@ -555,10 +481,7 @@ async function init() {
     if (r && mult > 0) {
       const custoT = calcularCustoReceita(r) * mult;
       const dets = [];
-      for (const ing of (r.ingredientes || [])) {
-        const item = state.itens.find(i => i.id === ing.itemId);
-        if (item) { const q = ing.quantidade * mult; item.quantidade -= q; dets.push({ itemId: ing.itemId, quantidade: q }); await sincronizar('itens', item); }
-      }
+      for (const ing of (r.ingredientes || [])) { const item = state.itens.find(i => i.id === ing.itemId); if (item) { const q = ing.quantidade * mult; item.quantidade -= q; dets.push({ itemId: ing.itemId, quantidade: q }); await sincronizar('itens', item); } }
       state.historico.unshift({ id: uid(), tipo: 'producao', lucro: (r.precoVenda * mult) - custoT, detalhesIngredientes: dets, texto: `Produção: ${mult}x ${r.nome}`, quando: new Date().toISOString() });
       await sincronizar('historico', state.historico[0]);
       e.target.reset(); renderizar(); toast("Estoque baixado!");
@@ -579,4 +502,4 @@ async function init() {
   document.getElementById("btn-cancelar-cliente").onclick = () => { document.getElementById("form-cliente").reset(); document.getElementById("cliente-id-edit").value = ""; document.getElementById("btn-salvar-cliente").textContent = "Cadastrar"; document.getElementById("btn-cancelar-cliente").classList.add("hidden"); };
 }
 
-window.onload = init;
+init();
