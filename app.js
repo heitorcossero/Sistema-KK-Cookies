@@ -19,7 +19,20 @@ const state = {
   congelados: {}
 };
 
-// UTILITÁRIOS
+// ==========================================
+// UTILITÁRIOS E AVISOS (NO TOPO)
+// ==========================================
+
+function toast(msg, erro = false) {
+  const t = document.getElementById("toast");
+  if (t) { 
+    t.textContent = msg; 
+    t.classList.toggle("erro", erro);
+    t.classList.add("show"); 
+    setTimeout(() => t.classList.remove("show"), 3000); 
+  }
+}
+
 const uid = () => crypto.randomUUID?.() ?? String(Date.now()) + Math.random().toString(36).slice(2);
 const formatarMoeda = (n) => (n || 0).toLocaleString("pt-BR", { style: "currency", currency: "BRL", minimumFractionDigits: 2 });
 const formatarMoedaLonga = (n) => (n || 0).toLocaleString("pt-BR", { style: "currency", currency: "BRL", minimumFractionDigits: 3 });
@@ -40,14 +53,14 @@ const isMesAtual = (dataIso) => {
 const getNomeMesAtual = () => new Intl.DateTimeFormat('pt-BR', { month: 'long', year: 'numeric' }).format(new Date());
 
 // ==========================================
-// AÇÕES GLOBAIS (Devem estar no topo)
+// AÇÕES GLOBAIS
 // ==========================================
 
 window.migrarParaNuvem = async () => {
-  if (!supabase) { toast("Supabase não configurado.", true); return; }
+  if (!supabase) { toast("Aguardando conexão com a nuvem...", true); return; }
   if (!confirm("Isso vai enviar TODOS os dados salvos neste computador para a nuvem. Confirma?")) return;
   
-  toast("Enviando dados...");
+  toast("Enviando dados... aguarde.");
   try {
     await Promise.all([
       sincronizar('itens', state.itens),
@@ -59,7 +72,10 @@ window.migrarParaNuvem = async () => {
     ]);
     toast("✅ Sincronização concluída!");
     renderizar();
-  } catch (err) { console.error(err); toast("Erro ao sincronizar.", true); }
+  } catch (err) {
+    console.error(err);
+    toast("Erro ao sincronizar dados.", true);
+  }
 };
 
 window.reverterLancamento = async (id) => {
@@ -247,11 +263,6 @@ async function sincronizar(tabela, dados, idExcluir = null) {
   } catch (e) { console.error("Erro sincronia:", e); }
 }
 
-function toast(msg, erro = false) {
-  const t = document.getElementById("toast");
-  if (t) { t.textContent = msg; t.classList.toggle("erro", erro); t.classList.add("show"); setTimeout(() => t.classList.remove("show"), 3000); }
-}
-
 // ==========================================
 // RENDERIZAÇÃO
 // ==========================================
@@ -313,7 +324,11 @@ function renderizar() {
     const lucR = state.historico.reduce((acc, h) => (h.tipo === 'producao' && h.lucro && isMesAtual(h.quando)) ? acc + h.lucro : acc, 0);
     const lucP = cap > 0 ? (cap * 3.7) - cap : 0;
     if (document.getElementById("valor-total")) document.getElementById("valor-total").textContent = formatarMoeda(cap);
-    if (document.getElementById("lucro-producoes")) document.getElementById("lucro-producoes").textContent = formatarMoeda(lucR);
+    if (document.getElementById("lucro-producoes")) {
+      document.getElementById("lucro-producoes").textContent = formatarMoeda(lucR);
+      const h3 = document.getElementById("lucro-producoes").parentElement.querySelector("h3");
+      if(h3) h3.textContent = `📈 Lucro em ${getNomeMesAtual()}`;
+    }
     if (document.getElementById("lucro-markup-estoque")) document.getElementById("lucro-markup-estoque").textContent = formatarMoeda(lucP);
 
     const dSabor = document.getElementById("lista-desempenho-sabores");
@@ -494,7 +509,7 @@ async function init() {
     const dados = { nome: document.getElementById("novo-item-nome").value, unidade: document.getElementById("novo-item-unidade").value, custoMedio: Number(document.getElementById("novo-item-custo").value) || 0, estoqueMinimo: Number(document.getElementById("novo-item-minimo").value) || 0 };
     if (idEdit) { const it = state.itens.find(x => x.id === idEdit); Object.assign(it, dados); await sincronizar('itens', it); } 
     else { const novo = { id: uid(), ...dados, quantidade: 0 }; state.itens.push(novo); await sincronizar('itens', novo); }
-    e.target.reset(); document.getElementById("insumo-id-edit").value = ""; document.getElementById("titulo-form-insumo").textContent = "Novo Insumo"; document.getElementById("btn-salvar-insumo").textContent = "Criar Insumo"; document.getElementById("btn-cancelar-insumo").classList.add("hidden"); renderizar(); toast("Insumo salvo!");
+    e.target.reset(); document.getElementById("insumo-id-edit").value = ""; document.getElementById("titulo-form-insumo").textContent = "Novo Insumo"; document.getElementById("btn-salvar-insumo").textContent = "Criar Insumo"; document.getElementById("btn-cancelar-insumo").classList.add("hidden"); renderizar toast("Insumo salvo!");
   };
 
   document.getElementById("btn-cancelar-insumo").onclick = () => { document.getElementById("form-novo-item").reset(); document.getElementById("insumo-id-edit").value = ""; document.getElementById("titulo-form-insumo").textContent = "Novo Insumo"; document.getElementById("btn-salvar-insumo").textContent = "Criar Insumo"; document.getElementById("btn-cancelar-insumo").classList.add("hidden"); };
