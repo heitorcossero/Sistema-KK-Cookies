@@ -56,17 +56,17 @@ async function carregarDados() {
         supabase.from('congelados').select('*')
       ]);
 
-      if (!it.error) {
+      // Só sobrescrever o estado se houver algum dado na nuvem
+      if (!it.error && (it.data.length > 0 || rec.data.length > 0)) {
         state.itens = it.data.map(i => ({...i, quantidade: Number(i.quantidade), custoMedio: Number(i.custo_medio), estoqueMinimo: Number(i.estoque_minimo)}));
         state.receitas = rec.data.map(r => ({...r, rendimento: Number(r.rendimento), precoVenda: Number(r.preco_venda)}));
         state.clientes = cli.data.map(c => ({...c, ultimaConversa: c.ultima_conversa}));
         state.encomendas = enc.data.map(e => ({...e, clienteId: e.cliente_id, valorTotal: Number(e.valor_total)}));
-        state.historico = hist.data.map(h => ({...h, itemId: h.item_id, receitaId: h.receita_id, detalhesIngredientes: h.detalhes_ingredientes}));
+        state.historico = hist.data.map(h => ({...h, id: h.id || uid(), itemId: h.item_id, receitaId: h.receita_id, detalhesIngredientes: h.detalhes_ingredientes}));
         
         state.congelados = {};
         cong.data.forEach(c => { state.congelados[c.receita_id] = Number(c.quantidade); });
         
-        // Atualizar backup local
         salvarNoNavegador();
         return true;
       }
@@ -81,7 +81,7 @@ async function carregarDados() {
     state.receitas = data.receitas || [];
     state.clientes = data.clientes || [];
     state.encomendas = data.encomendas || [];
-    state.historico = data.historico || [];
+    state.historico = (data.historico || []).map(h => ({...h, id: h.id || uid()}));
     state.congelados = data.congelados || {};
   }
   return false;
@@ -98,11 +98,9 @@ async function sincronizar(tabela, dados, idExcluir = null) {
     if (idExcluir) {
       await supabase.from(tabela).delete().eq('id', idExcluir);
     } else if (tabela === 'congelados') {
-      // Congelados usa receita_id como PK
       const lista = Object.entries(state.congelados).map(([rid, qtd]) => ({ receita_id: rid, quantidade: qtd }));
       await supabase.from('congelados').upsert(lista);
     } else {
-      // Normalizar campos para o Supabase (snake_case)
       const payload = Array.isArray(dados) ? dados : [dados];
       const formatado = payload.map(d => {
         const n = {...d};
@@ -126,8 +124,30 @@ async function sincronizar(tabela, dados, idExcluir = null) {
 // AÇÕES GLOBAIS
 // ==========================================
 
+window.migrarParaNuvem = async () => {
+  if (!supabase) { toast("Supabase não configurado corretamente.", true); return; }
+  if (!confirm("Isso vai enviar TODOS os dados salvos neste computador para a nuvem. Confirma?")) return;
+  
+  toast("Enviando dados... aguarde.");
+  try {
+    await Promise.all([
+      sincronizar('itens', state.itens),
+      sincronizar('receitas', state.receitas),
+      sincronizar('clientes', state.clientes),
+      sincronizar('encomendas', state.encomendas),
+      sincronizar('historico', state.historico),
+      sincronizar('congelados', null)
+    ]);
+    toast("✅ Sincronização concluída!");
+    renderizar();
+  } catch (err) {
+    console.error(err);
+    toast("Erro ao sincronizar dados.", true);
+  }
+};
+
 window.reverterLancamento = async (id) => {
-  if (!id || id === 'undefined') { toast("Registro antigo.", true); return; }
+  if (!id || id === 'undefined') { toast("Registro sem ID.", true); return; }
   if (!confirm("Desfazer este lançamento?")) return;
   const h = state.historico.find(x => x.id === id);
   if (!h) return;
@@ -250,7 +270,6 @@ function renderizar() {
       subtitle.style.color = supabase ? "#10b981" : "#f59e0b";
     }
 
-    // 1. Alertas
     const boxAlertas = document.getElementById("alertas-estoque");
     if (boxAlertas) {
       const baixos = state.itens.filter(i => i.estoqueMinimo > 0 && i.quantidade <= i.estoqueMinimo);
@@ -258,7 +277,6 @@ function renderizar() {
       boxAlertas.innerHTML = baixos.length ? `<h3>⚠️ Insumos em nível crítico</h3><ul>${baixos.map(i => `<li>${i.nome}: ${formatarQtd(i.quantidade)} ${i.unidade} (Mínimo: ${i.estoqueMinimo})</li>`).join("")}</ul>` : "";
     }
 
-    // 2. Estoque de Insumos
     const listaEstoque = document.getElementById("lista-estoque");
     if (listaEstoque) {
       listaEstoque.innerHTML = state.itens.sort((a,b) => (a.nome || "").localeCompare(b.nome || "")).map(it => `
@@ -273,7 +291,6 @@ function renderizar() {
         </li>`).join("");
     }
 
-    // 3. Estoque Congelados
     const listaCong = document.getElementById("lista-congelados");
     if (listaCong) {
       const itensCong = Object.entries(state.congelados).filter(([id, qtd]) => qtd > 0);
@@ -283,7 +300,6 @@ function renderizar() {
       }).join("") : '<p class="muted-small">Freezer vazio.</p>';
     }
 
-    // 4. Encomendas
     const listaEnc = document.getElementById("lista-encomendas");
     if (listaEnc) {
       const pedidosAtivos = state.encomendas.filter(e => !e.status.entregue);
@@ -313,7 +329,6 @@ function renderizar() {
           </div></article>`;
       }).join("");
 
-      // 5. Lista de Compras Consolidada
       const listaComprasEl = document.getElementById("lista-compras-consolidada");
       if (listaComprasEl) {
         const necessidades = {};
@@ -338,15 +353,16 @@ function renderizar() {
       }
     }
 
-    // 6. Info Financeira
     const cap = state.itens.reduce((acc, i) => acc + (i.quantidade * i.custoMedio), 0);
     const lucRealMes = state.historico.reduce((acc, h) => (h.tipo === 'producao' && h.lucro && isMesAtual(h.quando)) ? acc + h.lucro : acc, 0);
     const lucPot = cap > 0 ? (cap * 3.7) - cap : 0;
     if (document.getElementById("valor-total")) document.getElementById("valor-total").textContent = formatarMoeda(cap);
-    if (document.getElementById("lucro-producoes")) document.getElementById("lucro-producoes").textContent = formatarMoeda(lucRealMes);
+    if (document.getElementById("lucro-producoes")) {
+      document.getElementById("lucro-producoes").textContent = formatarMoeda(lucRealMes);
+      document.getElementById("lucro-producoes").parentElement.querySelector("h3").textContent = `📈 Lucro em ${getNomeMesAtual()}`;
+    }
     if (document.getElementById("lucro-markup-estoque")) document.getElementById("lucro-markup-estoque").textContent = formatarMoeda(lucPot);
 
-    // 7. Desempenho por Sabor
     const dSabor = document.getElementById("lista-desempenho-sabores");
     if (dSabor) {
       const pedMes = state.encomendas.filter(e => isMesAtual(e.dataEntrega));
@@ -361,10 +377,9 @@ function renderizar() {
         const c = s.rObj ? calcularCustoReceita(s.rObj) : 0;
         const l = s.rObj ? ((s.rObj.precoVenda - c) / s.rObj.rendimento) * s.qtd : 0;
         return `<tr><td><strong>${s.nome}</strong></td><td style="text-align:center">${s.qtd} un</td><td style="text-align:right; color:var(--accent-in)">${formatarMoeda(l)}</td></tr>`;
-      }).join("")}</tbody></table>` : '<p class="muted-small">Nenhuma venda este mês.</p>';
+      }).join("")}</tbody></table>` : '<p class="muted-small">Nenhuma venda entregue este mês.</p>';
     }
 
-    // 8. Histórico, Clientes e Tabelas
     const lHist = document.getElementById("lista-historico-estoque");
     if (lHist) lHist.innerHTML = state.historico.slice(0, 30).map(h => `<li class="mov"><div style="flex:1"><strong>${formatarData(h.quando)}</strong> - ${h.texto}</div><button class="btn-mini" onclick="reverterLancamento('${h.id}')">Desfazer</button></li>`).join("");
     
@@ -524,11 +539,12 @@ async function init() {
     e.preventDefault();
     const prods = [];
     document.querySelectorAll("#enc-produtos-container .enc-linha-row").forEach(row => { prods.push({ receitaId: row.querySelector(".prod-select").value, quantidade: Number(row.querySelector(".prod-qtd").value) }); });
+    const cId = document.getElementById("enc-cliente-select").value;
     const dEnt = document.getElementById("enc-data-entrega").value;
-    const nova = { id: uid(), clienteId: document.getElementById("enc-cliente-select").value, dataEntrega: dEnt || new Date().toISOString().split('T')[0], titulo: document.getElementById("enc-titulo").value, valorTotal: Number(document.getElementById("enc-valor-total").value), produtos: prods, status: { pago: false, massaFeita: false, assado: false, tudoPronto: false, entregue: false } };
+    const nova = { id: uid(), clienteId: cId, dataEntrega: dEnt || new Date().toISOString().split('T')[0], titulo: document.getElementById("enc-titulo").value, valorTotal: Number(document.getElementById("enc-valor-total").value), produtos: prods, status: { pago: false, massaFeita: false, assado: false, tudoPronto: false, entregue: false } };
     state.encomendas.push(nova);
     await sincronizar('encomendas', nova);
-    const cli = state.clientes.find(c => c.id === nova.clienteId); if (cli) { cli.ultimaConversa = new Date().toISOString(); await sincronizar('clientes', cli); }
+    const cli = state.clientes.find(c => c.id === cId); if (cli) { cli.ultimaConversa = new Date().toISOString(); await sincronizar('clientes', cli); }
     e.target.reset(); document.getElementById("enc-produtos-container").innerHTML = ""; renderizar(); toast("Pedido registrado!");
   };
 
