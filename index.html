@@ -21,10 +21,10 @@
       <div class="login-icon">🔐</div>
       <h2>Acesso Restrito</h2>
       <p>Digite a senha para acessar o sistema.</p>
-      <form id="form-login">
-        <input type="password" id="input-senha" placeholder="Sua senha" required autofocus>
-        <button type="submit" class="btn-salvar">Entrar</button>
-      </form>
+      <div id="login-form-simples">
+        <input type="password" id="input-senha" placeholder="Sua senha" autofocus>
+        <button type="button" class="btn-salvar" onclick="tentarLogar()">Entrar</button>
+      </div>
       <p id="login-erro" class="login-erro hidden">Senha incorreta!</p>
     </div>
   </div>
