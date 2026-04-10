@@ -5,11 +5,13 @@ const STORAGE_KEY = "controle_estoque_v2";
 const SENHA_ACESSO = "Cate150909";
 
 let supabase = null;
-try {
-  if (typeof window.supabase !== 'undefined') {
-    supabase = window.supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
-  }
-} catch (e) { console.error("Erro Supabase:", e); }
+const initSupabase = () => {
+  try {
+    if (typeof window.supabase !== 'undefined' && window.supabase.createClient) {
+      supabase = window.supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
+    }
+  } catch (e) { console.error("Erro Supabase:", e); }
+};
 
 const state = {
   itens: [],
@@ -208,6 +210,7 @@ window.excluir = (tabela, id) => {
 // ==========================================
 
 async function carregar() {
+  // 1. Carrega o que está no celular/PC primeiro (instantâneo)
   const raw = localStorage.getItem(STORAGE_KEY);
   if (raw) {
     try {
@@ -218,10 +221,11 @@ async function carregar() {
       state.encomendas = (data.encomendas || []).map(e => ({...e, valorTotal: Number(e.valorTotal ?? e.valor_total) || 0, produtos: Array.isArray(e.produtos) ? e.produtos : (Array.isArray(e.itens) ? e.itens : []), status: e.status || { pago: false, massaFeita: false, assado: false, tudoPronto: false, entregue: false }}));
       state.historico = (data.historico || []).map(h => ({...h, id: h.id || uid()}));
       state.congelados = data.congelados && typeof data.congelados === 'object' && !Array.isArray(data.congelados) ? data.congelados : {};
+      renderizar();
     } catch (e) { console.error("Erro ao carregar JSON:", e); }
   }
 
-  // Tenta baixar da nuvem se local estiver vazio ou para atualizar
+  // 2. Busca na nuvem sem travar a tela
   if (supabase) {
     try {
       const { data: it } = await supabase.from('itens').select('*');
@@ -240,8 +244,9 @@ async function carregar() {
         state.congelados = {};
         (cong || []).forEach(c => { state.congelados[c.receita_id] = Number(c.quantidade); });
         salvarLocal();
+        renderizar();
       }
-    } catch (e) { console.log("Offline ou erro na nuvem."); }
+    } catch (e) { console.log("Erro nuvem."); }
   }
 }
 
@@ -453,6 +458,8 @@ function init() {
   const inputSenha = document.getElementById("input-senha");
   const erroLogin = document.getElementById("login-erro");
 
+  initSupabase();
+
   if (sessionStorage.getItem("estoque_logado") === "true") { showApp(); }
 
   formLogin.onsubmit = (e) => {
@@ -467,12 +474,11 @@ function init() {
     }
   };
 
-  async function showApp() {
-    loginScreen.classList.add("hidden");
+  function showApp() {
+    loginScreen.style.display = "none";
     appContainer.style.display = "block";
-    await carregar();
+    carregar(); // Busca os dados em segundo plano
     setupEvents();
-    renderizar();
   }
 }
 
