@@ -8,35 +8,12 @@
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link href="https://fonts.googleapis.com/css2?family=DM+Sans:ital,opsz,wght@0,9..40,400;0,9..40,500;0,9..40,600;0,9..40,700;1,9..40,400&display=swap" rel="stylesheet" />
-  <style>
-    #trava-seguranca {
-      position: fixed; top: 0; left: 0; width: 100%; height: 100%;
-      background: #0f1419; color: white; z-index: 99999;
-      display: flex; align-items: center; justify-content: center; text-align: center;
-      font-family: sans-serif;
-    }
-    .caixa-login { background: #1a2332; padding: 2rem; border-radius: 12px; width: 90%; max-width: 350px; }
-    .caixa-login input { width: 100%; padding: 12px; margin: 15px 0; border-radius: 8px; border: 1px solid #2d3a4d; background: #0f1419; color: white; text-align: center; font-size: 16px; }
-    .caixa-login button { width: 100%; padding: 12px; border-radius: 8px; border: none; background: #34d399; color: #052e22; font-weight: bold; cursor: pointer; }
-    .erro-msg { color: #f87171; font-size: 14px; margin-top: 10px; display: none; }
-  </style>
 </head>
 <body>
-  <!-- Tela de Bloqueio -->
-  <div id="trava-seguranca">
-    <div class="caixa-login">
-      <h2>🔐 Acesso Restrito</h2>
-      <p>Digite a senha para entrar</p>
-      <input type="password" id="senha-input" placeholder="Senha">
-      <button onclick="tentarLogarManual()">Entrar</button>
-      <p id="erro-trava" class="erro-msg">Senha incorreta!</p>
-    </div>
-  </div>
-
-  <div class="app" style="display: none;" id="corpo-sistema">
+  <div class="app">
     <header class="header">
       <h1>Estoque &amp; receitas</h1>
-      <p class="subtitle">Conectando...</p>
+      <p class="subtitle">Carregando sistema...</p>
     </header>
 
     <nav class="tabs" role="tablist" aria-label="Seções do sistema">
@@ -51,43 +28,64 @@
     <div id="panel-estoque" class="tab-panel active" role="tabpanel" aria-labelledby="tab-estoque">
       <div id="alertas-estoque" class="alertas-box hidden"></div>
       
-      <div class="grid">
+      <div class="grid-3">
         <section class="card">
-          <h2>📦 Lançar Entrada</h2>
+          <h2>🛒 Entrada (Compras)</h2>
           <form id="form-entrada" class="form">
-            <label><span>Item</span><select id="entrada-nome" required><option value="">Selecione...</option></select></label>
-            <label><span>Quantidade</span><input type="number" id="entrada-qtd" step="any" required /></label>
-            <label><span>Preço Total Pago</span><input type="number" id="entrada-preco" step="any" required /></label>
+            <label><span>Insumo</span><select id="entrada-nome" required><option value="">Carregando...</option></select></label>
+            <div class="flex-row">
+              <label style="flex:1"><span>Qtd</span><input type="number" id="entrada-qtd" step="any" required /></label>
+              <label style="flex:1"><span>Preço Pago</span><input type="number" id="entrada-preco" step="any" required /></label>
+            </div>
             <button type="submit" class="btn btn-primary">Registrar Compra</button>
           </form>
         </section>
 
         <section class="card">
-          <h2>📤 Saída Manual (Ajuste)</h2>
-          <form id="form-saida-manual" class="form">
-            <label><span>Item</span><select id="saida-manual-id" required><option value="">Selecione...</option></select></label>
-            <label><span>Quantidade</span><input type="number" id="saida-manual-qtd" step="any" required /></label>
+          <h2>🥣 Registro de Receita (Produção)</h2>
+          <form id="form-produzir" class="form">
+            <label><span>Receita</span><select id="produzir-receita-id" required><option value="">Selecione...</option></select></label>
+            <label><span>Vezes a receita</span><input type="number" id="produzir-qtd" value="1" step="1" min="1" required /></label>
             <button type="submit" class="btn btn-secondary">Baixar Estoque</button>
+          </form>
+        </section>
+
+        <section class="card">
+          <h2>📉 Saída Manual (Ajuste)</h2>
+          <form id="form-saida-manual" class="form">
+            <label><span>Insumo</span><select id="saida-manual-id" required><option value="">Selecione...</option></select></label>
+            <label><span>Quantidade a Retirar</span><input type="number" id="saida-manual-qtd" step="any" required /></label>
+            <button type="submit" class="btn btn-danger">Retirar do Estoque</button>
+          </form>
+        </section>
+
+        <section class="card">
+          <h2>❄️ Cookies Congelados (Freezer)</h2>
+          <form id="form-congelados" class="form">
+            <label><span>Sabor</span><select id="congelado-receita-id" required><option value="">Selecione...</option></select></label>
+            <label><span>Quantidade (Unidades)</span><input type="number" id="congelado-qtd" step="1" required /></label>
+            <div class="flex-row">
+              <button type="submit" id="btn-add-congelado" class="btn btn-success" style="flex:1">Adicionar (+)</button>
+              <button type="submit" id="btn-sub-congelado" class="btn btn-danger" style="flex:1">Retirar (-)</button>
+            </div>
           </form>
         </section>
       </div>
 
-      <section class="card card-wide">
-        <div class="estoque-head">
-          <h2>📋 Estoque Atual</h2>
-        </div>
-        <ul id="lista-estoque" class="lista-estoque"></ul>
-      </section>
+      <div class="grid-2">
+        <section class="card">
+          <h2>📦 Estoque de Insumos</h2>
+          <ul id="lista-estoque" class="lista-estoque"></ul>
+        </section>
+        <section class="card">
+          <h2>🍦 Estoque de Congelados</h2>
+          <ul id="lista-congelados" class="lista-estoque"></ul>
+        </section>
+      </div>
 
       <section class="card card-wide">
-        <h2>🧊 Cookies no Freezer (Prontos)</h2>
-        <form id="form-congelados" class="form flex-row" style="margin-bottom: 1.5rem; align-items: flex-end;">
-          <label style="flex:2"><span>Cookie / Sabor</span><select id="congelado-receita-id" required><option value="">Selecione...</option></select></label>
-          <label style="flex:1"><span>Qtd</span><input type="number" id="congelado-qtd" required /></label>
-          <button type="submit" id="btn-add-congelado" class="btn btn-primary">Add</button>
-          <button type="submit" id="btn-rem-congelado" class="btn btn-secondary">Rem</button>
-        </form>
-        <ul id="lista-congelados" class="lista-estoque"></ul>
+        <h2>📜 Últimos Lançamentos (Editar/Apagar)</h2>
+        <ul id="lista-historico-estoque" class="lista-historico"></ul>
       </section>
     </div>
 
@@ -96,133 +94,161 @@
       <section class="card card-wide enc-cadastro">
         <h2>📝 Novo Pedido</h2>
         <form id="form-encomenda" class="form">
-          <div class="grid" style="margin-bottom:0">
-            <label><span>Título do Pedido</span><input type="text" id="enc-titulo" placeholder="Ex: Cookie p/ Maria" required /></label>
-            <label><span>Valor Total (R$)</span><input type="number" id="enc-valor-total" step="0.01" required /></label>
-          </div>
-          <div class="grid" style="margin-bottom:0.5rem">
+          <div class="grid-2" style="margin-bottom:0">
             <label><span>Cliente</span><select id="enc-cliente-select" required><option value="">Selecione...</option></select></label>
             <label><span>Data Entrega (Opcional)</span><input type="date" id="enc-data-entrega" /></label>
           </div>
+          <div class="grid-2" style="margin-bottom:0">
+            <label><span>Título Pedido (Opcional)</span><input type="text" id="enc-titulo" placeholder="Ex: Kit Festa" /></label>
+            <label><span>Valor Total Calculado (R$)</span><input type="number" id="enc-valor-total" step="any" placeholder="0,00" readonly style="background: var(--surface); cursor: not-allowed;" /></label>
+          </div>
           
           <div id="enc-produtos-container" class="enc-linhas-editor"></div>
-          <button type="button" id="btn-add-produto-enc" class="btn btn-ghost" style="margin-bottom:1rem">+ Adicionar Cookie ao Pedido</button>
+          <button type="button" id="btn-add-produto-enc" class="btn btn-ghost">+ Adicionar Produto</button>
           
-          <button type="submit" class="btn btn-primary">Registrar Encomenda</button>
+          <button type="submit" class="btn btn-primary">Salvar Encomenda</button>
         </form>
       </section>
 
-      <div id="lista-encomendas" class="lista-encomendas"></div>
+      <section class="card card-wide">
+        <h2>🚚 Pedidos em Andamento</h2>
+        <div id="lista-encomendas" class="lista-encomendas"></div>
+      </section>
+
+      <section class="card card-wide" id="secao-lista-compras">
+        <h2>🛒 Lista de Compras para Todas as Encomendas</h2>
+        <p class="muted-small" style="margin-bottom: 1rem;">O que você precisa comprar para atender todos os pedidos acima (descontando seu estoque atual).</p>
+        <div id="lista-compras-consolidada" class="enc-banner">
+          <!-- Lista gerada via JS -->
+        </div>
+      </section>
     </div>
 
     <!-- Aba Clientes -->
     <div id="panel-clientes" class="tab-panel" role="tabpanel" aria-labelledby="tab-clientes">
       <section class="card card-wide">
-        <h2 id="titulo-form-cliente">👥 Cadastrar/Editar Cliente</h2>
+        <h2 id="titulo-form-cliente">Novo Cliente</h2>
         <form id="form-cliente" class="form">
           <input type="hidden" id="cliente-id-edit" />
-          <div class="grid">
-            <label><span>Nome Completo</span><input type="text" id="cliente-nome" required /></label>
-            <label><span>WhatsApp (com DDD)</span><input type="text" id="cliente-whatsapp" placeholder="11999998888" /></label>
+          <div class="grid-3" style="margin-bottom:0">
+            <label><span>Nome</span><input type="text" id="cliente-nome" required /></label>
+            <label><span>WhatsApp</span><input type="text" id="cliente-whatsapp" placeholder="Ex: 11999999999" /></label>
+            <label><span>Última Conversa</span><input type="date" id="cliente-ultima-conversa" /></label>
           </div>
-          <label><span>Última Conversa / Status</span><input type="date" id="cliente-ultima-conversa" /></label>
-          <label><span>Notas sobre o cliente</span><input type="text" id="cliente-conversa" placeholder="Ex: Gosta de cookie bem assado" /></label>
-          <div class="btn-row">
-            <button type="submit" id="btn-salvar-cliente" class="btn btn-primary">Cadastrar</button>
-            <button type="button" id="btn-cancelar-cliente" class="btn btn-ghost hidden">Cancelar</button>
+          <label><span>Notas / Preferências</span><textarea id="cliente-conversa" rows="2"></textarea></label>
+          <div class="flex-row">
+             <button type="submit" class="btn btn-primary" id="btn-salvar-cliente">Cadastrar</button>
+             <button type="button" class="btn btn-ghost hidden" id="btn-cancelar-cliente">Cancelar</button>
           </div>
         </form>
       </section>
-      <div id="lista-clientes" class="lista-encomendas"></div>
+      <section class="card card-wide">
+        <h2>Meus Clientes (Ordenados por última conversa)</h2>
+        <div id="lista-clientes" class="lista-encomendas"></div>
+      </section>
     </div>
 
     <!-- Aba Editar -->
     <div id="panel-editar" class="tab-panel" role="tabpanel" aria-labelledby="tab-editar">
-      <section class="card card-wide">
-        <h2 id="titulo-form-insumo">🛠️ Novo Insumo</h2>
-        <form id="form-novo-item" class="form">
-          <input type="hidden" id="insumo-id-edit" />
-          <div class="grid">
+      <div class="grid-2">
+        <section class="card">
+          <h2 id="titulo-form-insumo">Novo Insumo</h2>
+          <form id="form-novo-item" class="form">
+            <input type="hidden" id="insumo-id-edit" />
             <label><span>Nome do Insumo</span><input type="text" id="novo-item-nome" required /></label>
-            <label><span>Unidade (kg, un, g, l)</span><input type="text" id="novo-item-unidade" required /></label>
-          </div>
-          <div class="grid">
-            <label><span>Custo Médio (R$)</span><input type="number" id="novo-item-custo" step="any" required /></label>
-            <label><span>Estoque Mínimo</span><input type="number" id="novo-item-minimo" step="any" value="0" /></label>
-          </div>
-          <div class="btn-row">
-            <button type="submit" id="btn-salvar-insumo" class="btn btn-primary">Criar Insumo</button>
-            <button type="button" id="btn-cancelar-insumo" class="btn btn-ghost hidden">Cancelar</button>
-          </div>
-        </form>
-        <div id="editar-itens-container" class="tabela-wrap" style="margin-top:1.5rem"></div>
-      </section>
+            <div class="grid-2" style="margin-bottom:0">
+              <label><span>Unidade (kg, g, un)</span><input type="text" id="novo-item-unidade" placeholder="ex: g" required /></label>
+              <label><span>Custo p/ Unidade (R$)</span><input type="number" id="novo-item-custo" step="any" placeholder="0,000" /></label>
+            </div>
+            <label><span>Estoque Mínimo</span><input type="number" id="novo-item-minimo" step="any" /></label>
+            <div class="flex-row">
+              <button type="submit" class="btn btn-primary" id="btn-salvar-insumo">Criar Insumo</button>
+              <button type="button" class="btn btn-ghost hidden" id="btn-cancelar-insumo">Cancelar</button>
+            </div>
+          </form>
+        </section>
 
-      <section class="card card-wide">
-        <h2>🍪 Nova Receita</h2>
-        <form id="form-nova-receita" class="form">
-          <input type="hidden" id="receita-id-edit" />
-          <div class="grid">
-            <label><span>Nome da Receita</span><input type="text" id="receita-nome" required /></label>
-            <label><span>Preço de Venda (R$)</span><input type="number" id="receita-preco-venda" step="0.01" required /></label>
-          </div>
-          <label><span>Rendimento (un)</span><input type="number" id="receita-rendimento" step="1" value="1" required /></label>
-          <div id="ingredientes-container" class="enc-linhas-editor" style="margin-top:1rem"></div>
-          <button type="button" id="btn-add-ingrediente" class="btn btn-ghost" style="margin-bottom:1rem">+ Adicionar Ingrediente</button>
-          <div class="btn-row">
-            <button type="submit" id="btn-salvar-receita" class="btn btn-primary">Salvar Receita</button>
-            <button type="button" id="btn-cancelar-receita" class="btn btn-ghost hidden">Cancelar</button>
-          </div>
-        </form>
-        <div id="lista-receitas-editar" class="grid-2" style="margin-top:1.5rem"></div>
-      </section>
+        <section class="card">
+          <h2 id="titulo-form-receita">Nova Receita</h2>
+          <form id="form-nova-receita" class="form">
+            <input type="hidden" id="receita-id-edit" />
+            <label><span>Nome</span><input type="text" id="receita-nome" required /></label>
+            <div class="grid-2" style="margin-bottom:0">
+              <label><span>Rendimento (Qtd)</span><input type="number" id="receita-rendimento" placeholder="Ex: 20" required /></label>
+              <label><span>Venda Sugerida (R$)</span><input type="number" id="receita-preco-venda" step="any" required /></label>
+            </div>
+            <div id="ingredientes-container" class="enc-linhas-editor"></div>
+            <button type="button" id="btn-add-ingrediente" class="btn btn-ghost">+ Ingrediente</button>
+            <div class="flex-row">
+              <button type="submit" class="btn btn-primary" id="btn-salvar-receita">Salvar Receita</button>
+              <button type="button" class="btn btn-ghost hidden" id="btn-cancelar-receita">Cancelar</button>
+            </div>
+          </form>
+        </section>
+      </div>
+
+      <div class="grid-2">
+        <section class="card">
+          <h2>Gerenciar Insumos</h2>
+          <div id="editar-itens-container"></div>
+        </section>
+        <section class="card">
+          <h2>Minhas Receitas</h2>
+          <div id="lista-receitas-editar"></div>
+        </section>
+      </div>
     </div>
 
-    <!-- Aba Informações -->
+    <!-- Aba Info -->
     <div id="panel-info" class="tab-panel" role="tabpanel" aria-labelledby="tab-info">
       <div class="grid-3">
-        <section class="card card-valor"><h3>💰 Capital em Estoque</h3><p id="valor-total" class="valor-total">R$ 0,00</p></section>
-        <section class="card card-markup-simp"><h3>📈 Lucro Realizado</h3><p id="lucro-producoes" class="valor-total" style="color:var(--accent-in)">R$ 0,00</p></section>
-        <section class="card"><h3>🍪 Média por Pedido</h3><p id="media-cookies-pedido" class="valor-total" style="color:var(--accent-in)">0 un</p></section>
+        <section class="card card-valor">
+          <h3>💰 Valor em Estoque</h3>
+          <p id="valor-total" class="valor-total">R$ 0,00</p>
+          <p class="muted-small">Total investido em ingredientes.</p>
+        </section>
+
+        <section class="card card-markup-simp">
+          <h3>📈 Lucro Realizado</h3>
+          <p id="lucro-producoes" class="valor-total" style="color:var(--accent-in)">R$ 0,00</p>
+          <p class="muted-small">Soma do lucro das produções registradas.</p>
+        </section>
+
+        <section class="card">
+          <h3>🚀 Potencial do Estoque</h3>
+          <p id="lucro-markup-estoque" class="valor-total" style="color:var(--money)">R$ 0,00</p>
+          <p class="muted-small">Lucro estimado ao vender o estoque (Markup 3.7).</p>
+        </section>
+
+        <section class="card">
+          <h3>🍪 Média por Pedido</h3>
+          <p id="media-cookies-pedido" class="valor-total" style="color:var(--accent-in)">0 un</p>
+          <p class="muted-small">Quantidade média de cookies por encomenda.</p>
+        </section>
+      </div>
+
+      <div class="grid-2">
+        <section class="card card-wide">
+          <h2>📊 Desempenho por Sabor (Este Mês)</h2>
+          <div id="lista-desempenho-sabores">
+            <!-- Gerado via JS -->
+          </div>
+        </section>
       </div>
 
       <section class="card card-wide">
-        <h2>☁️ Nuvem</h2>
-        <div class="flex-row" style="gap:10px">
-          <button type="button" class="btn btn-primary" onclick="migrarParaNuvem()" style="flex:1">⬆️ Enviar p/ Nuvem</button>
-          <button type="button" class="btn btn-secondary" onclick="carregar()" style="flex:1">⬇️ Baixar da Nuvem</button>
-        </div>
-      </section>
-
-      <section class="card card-wide">
-        <h2>📜 Histórico</h2>
+        <h2>📜 Histórico de Movimentações</h2>
         <ul id="lista-historico-estoque" class="lista-historico"></ul>
+        
+        <div style="margin-top: 2rem; border-top: 1px solid var(--border); padding-top: 1rem;">
+          <p class="muted-small">⚠️ Use o botão abaixo apenas se seus dados locais não estiverem na nuvem.</p>
+          <button type="button" class="btn btn-ghost" onclick="migrarParaNuvem()" style="margin-top: 0.5rem; width: 100%; border-color: var(--accent-in); color: var(--accent-in);">⬆️ Enviar dados deste PC para a Nuvem</button>
+        </div>
       </section>
     </div>
   </div>
 
   <div id="toast" class="toast"></div>
-  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
   <script src="app.js"></script>
-  <script>
-    function tentarLogarManual() {
-      const s = document.getElementById("senha-input").value;
-      if (s === "Cate150909") {
-        sessionStorage.setItem("logado_ok", "true");
-        document.getElementById("trava-seguranca").style.display = "none";
-        document.getElementById("corpo-sistema").style.display = "block";
-        if (typeof init === 'function') init();
-      } else {
-        document.getElementById("erro-trava").style.display = "block";
-      }
-    }
-    window.onload = () => {
-      if (sessionStorage.getItem("logado_ok") === "true") {
-        document.getElementById("trava-seguranca").style.display = "none";
-        document.getElementById("corpo-sistema").style.display = "block";
-        if (typeof init === 'function') init();
-      }
-    };
-  </script>
 </body>
 </html>
