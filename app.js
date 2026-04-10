@@ -296,10 +296,17 @@ async function salvar(tabela = null, dados = null) {
         if (obj.valorTotal !== undefined) { obj.valor_total = obj.valorTotal; delete obj.valorTotal; }
         if (obj.dataEntrega !== undefined) { obj.data_entrega = obj.dataEntrega; delete obj.dataEntrega; }
         if (obj.receitaId !== undefined) { obj.receita_id = obj.receitaId; delete obj.receitaId; }
+        if (obj.precoVenda !== undefined) { obj.preco_venda = obj.precoVenda; delete obj.precoVenda; }
+        if (obj.itemId !== undefined) { obj.item_id = obj.itemId; delete obj.itemId; }
+        if (obj.detalhesIngredientes !== undefined) { obj.detalhes_ingredientes = obj.detalhesIngredientes; delete obj.detalhesIngredientes; }
         return obj;
       });
-      await supabase.from(tabela).upsert(dbPayload);
-    } catch (err) { console.error("Erro salvar Supabase:", err); }
+      const { error } = await supabase.from(tabela).upsert(dbPayload);
+      if (error) throw error;
+    } catch (err) { 
+      console.error("Erro salvar Supabase:", err);
+      toast("⚠️ Erro ao sincronizar: " + err.message, true);
+    }
   }
 }
 
