@@ -18,6 +18,10 @@ const formatarData = (iso) => { if (!iso) return "A definir"; const d = new Date
 function isMesAtual(dataIso) { if (!dataIso) return false; const d = new Date(dataIso); const hoje = new Date(); return d.getMonth() === hoje.getMonth() && d.getFullYear() === hoje.getFullYear(); }
 const getNomeMesAtual = () => new Intl.DateTimeFormat('pt-BR', { month: 'long', year: 'numeric' }).format(new Date());
 
+// ==========================================
+// NUVEM E SINCRONIA
+// ==========================================
+
 async function sincronizar(tabela, dados, idExcluir = null) {
   if (!supabase) return;
   try {
@@ -41,45 +45,43 @@ async function sincronizar(tabela, dados, idExcluir = null) {
 async function carregar() {
   const local = localStorage.getItem(STORAGE_KEY);
   if (local) { state = JSON.parse(local); renderizar(); }
+  
   if (supabase) {
     try {
       const { data: it } = await supabase.from('itens').select('*');
       if (it?.length) {
-        state.itens = it.map(i => ({...i, custoMedio: i.custo_medio, estoqueMinimo: i.estoque_minimo}));
+        state.itens = it.map(i => ({...i, id: i.id, nome: i.nome, unidade: i.unidade, quantidade: Number(i.quantidade), custoMedio: Number(i.custo_medio), estoqueMinimo: Number(i.estoque_minimo)}));
         const { data: rec } = await supabase.from('receitas').select('*');
         state.receitas = rec || [];
         const { data: cli } = await supabase.from('clientes').select('*');
         state.clientes = cli || [];
         const { data: enc } = await supabase.from('encomendas').select('*');
-        state.encomendas = (enc || []).map(e => ({...e, clienteId: e.cliente_id, valorTotal: e.valor_total}));
+        state.encomendas = (enc || []).map(e => ({...e, id: e.id, clienteId: e.cliente_id, valorTotal: Number(e.valor_total), dataEntrega: e.data_entrega}));
         const { data: cong } = await supabase.from('congelados').select('*');
-        state.congelados = {}; (cong || []).forEach(c => state.congelados[c.receita_id] = c.quantidade);
+        state.congelados = {}; (cong || []).forEach(c => state.congelados[c.receita_id] = Number(c.quantidade));
         localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
         renderizar();
       }
-    } catch (e) { console.log("Nuvem offline."); }
+    } catch (e) { console.log("Nuvem em espera..."); }
   }
 }
 
 function salvar() { localStorage.setItem(STORAGE_KEY, JSON.stringify(state)); }
 function toast(msg, erro = false) { const t = document.getElementById("toast"); if (t) { t.textContent = msg; t.classList.toggle("erro", erro); t.classList.add("show"); setTimeout(() => t.classList.remove("show"), 3000); } }
 
+// ==========================================
+// RENDERIZAÇÃO
+// ==========================================
+
 function renderizar() {
   const sub = document.querySelector(".subtitle");
-  if (sub) { sub.textContent = supabase ? "✅ Sincronizado" : "💾 Offline"; sub.style.color = supabase ? "#10b981" : "#f59e0b"; }
-
-  const box = document.getElementById("alertas-estoque");
-  if (box) {
-    const baixos = state.itens.filter(i => i.estoqueMinimo > 0 && i.quantidade <= i.estoqueMinimo);
-    box.classList.toggle("hidden", baixos.length === 0);
-    box.innerHTML = baixos.length ? `<h3>⚠️ Estoque Baixo</h3><ul>${baixos.map(i => `<li>${i.nome}: ${formatarQtd(i.quantidade)}</li>`).join("")}</ul>` : "";
-  }
+  if (sub) { sub.textContent = supabase ? "✅ Nuvem Ativa" : "💾 Local"; sub.style.color = supabase ? "#10b981" : "#f59e0b"; }
 
   const list = document.getElementById("lista-estoque");
   if (list) list.innerHTML = state.itens.sort((a,b) => a.nome.localeCompare(b.nome)).map(i => `<li class="item-estoque"><strong>${i.nome}</strong>: ${formatarQtd(i.quantidade)} ${i.unidade}</li>`).join("");
 
   const enc = document.getElementById("lista-encomendas");
-  if (enc) enc.innerHTML = state.encomendas.map(e => `<article class="card-encomenda"><h3>${escapeHtml(e.titulo)}</h3><p>Entrega: ${formatarData(e.dataEntrega)}</p></article>`).join("");
+  if (enc) enc.innerHTML = state.encomendas.map(e => `<article class="card-encomenda"><h3>${escapeHtml(e.titulo || 'Pedido')}</h3><p>Entrega: ${formatarData(e.dataEntrega)}</p></article>`).join("");
 
   const cli = document.getElementById("lista-clientes");
   if (cli) cli.innerHTML = state.clientes.map(c => `<article class="card-encomenda"><h3>${escapeHtml(c.nome)}</h3><p>${c.whatsapp || ""}</p></article>`).join("");
@@ -92,13 +94,20 @@ function atualizarSelects() {
   document.querySelectorAll("#entrada-nome, #saida-manual-id, #produzir-receita-id").forEach(s => s.innerHTML = opt);
 }
 
+// ==========================================
+// INICIALIZAÇÃO
+// ==========================================
+
 function init() {
   carregar();
-  document.querySelectorAll(".tab").forEach(t => t.onclick = () => {
-    document.querySelectorAll(".tab, .tab-panel").forEach(x => x.classList.remove("active"));
-    t.classList.add("active");
-    document.getElementById(`panel-${t.dataset.tab}`).classList.add("active");
-    renderizar();
+  
+  document.querySelectorAll(".tab").forEach(tab => {
+    tab.onclick = () => {
+      document.querySelectorAll(".tab, .tab-panel").forEach(x => x.classList.remove("active"));
+      tab.classList.add("active");
+      document.getElementById(`panel-${tab.dataset.tab}`).classList.add("active");
+      renderizar();
+    };
   });
 
   const fEntrada = document.getElementById("form-entrada");
@@ -114,19 +123,16 @@ function init() {
 }
 
 window.migrarParaNuvem = async () => {
-  if (!confirm("Enviar dados?")) return;
+  if (!confirm("Subir dados para nuvem?")) return;
+  toast("Sincronizando...");
   await sincronizar('itens', state.itens);
   await sincronizar('receitas', state.receitas);
   await sincronizar('clientes', state.clientes);
   await sincronizar('encomendas', state.encomendas);
-  alert("Sincronizado!");
+  alert("Pronto!");
 };
 
-window.reverterLancamento = () => {};
-window.editarInsumo = () => {};
-window.editarCliente = () => {};
-window.editarReceita = () => {};
-window.toggleStatus = () => {};
-window.excluir = () => {};
-window.atualizarValorEncomenda = () => {};
-window.validarEstoqueEncomenda = () => [];
+// Funções de compatibilidade (placeholder para não dar erro)
+window.reverterLancamento = () => {}; window.editarInsumo = () => {}; window.editarCliente = () => {};
+window.editarReceita = () => {}; window.toggleStatus = () => {}; window.excluir = () => {};
+window.atualizarValorEncomenda = () => {}; window.validarEstoqueEncomenda = () => [];
