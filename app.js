@@ -1,20 +1,5 @@
-// CONFIGURAÇÕES E CONEXÃO
-const SUPABASE_URL = "https://wxhkizdgpvizhzibxgkt.supabase.co";
-const SUPABASE_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Ind4aGtpemRncHZpemh6aWJ4Z2t0Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzU2MDg3NzcsImV4cCI6MjA5MTE4NDc3N30.X39g8gvk7Hb932vltuvANNGiKF7cZCoQsUHE1Mm7mtY";
+// CONFIGURAÇÕES
 const STORAGE_KEY = "controle_estoque_v2";
-
-let supabase = null;
-try {
-  if (typeof window.supabase !== 'undefined') {
-    supabase = window.supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
-  } else {
-    // Tenta carregar dinamicamente se não estiver no index.html
-    const script = document.createElement('script');
-    script.src = 'https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2';
-    script.onload = () => { supabase = window.supabase.createClient(SUPABASE_URL, SUPABASE_KEY); init(); };
-    document.head.appendChild(script);
-  }
-} catch (e) { console.error("Erro Supabase:", e); }
 
 const state = {
   itens: [],
@@ -54,28 +39,6 @@ const getNomeMesAtual = () => {
 // ==========================================
 // AÇÕES GLOBAIS
 // ==========================================
-
-window.migrarParaNuvem = async () => {
-  if (!supabase) { toast("Aguardando conexão com a nuvem...", true); return; }
-  if (!confirm("Isso vai enviar TODOS os dados salvos neste computador para a nuvem. Confirma?")) return;
-  
-  toast("Enviando dados... aguarde.");
-  try {
-    await Promise.all([
-      sincronizar('itens', state.itens),
-      sincronizar('receitas', state.receitas),
-      sincronizar('clientes', state.clientes),
-      sincronizar('encomendas', state.encomendas),
-      sincronizar('historico', state.historico),
-      sincronizar('congelados', null)
-    ]);
-    toast("✅ Dados sincronizados com sucesso!");
-    renderizar();
-  } catch (err) {
-    console.error(err);
-    toast("Erro ao sincronizar dados.", true);
-  }
-};
 
 window.reverterLancamento = (id) => {
   if (!id || id === 'undefined') { toast("Registro sem ID.", true); return; }
@@ -190,8 +153,7 @@ window.excluir = (tabela, id) => {
 // GESTÃO DE DADOS
 // ==========================================
 
-async function carregar() {
-  // 1. Prioridade: Carregar o que está salvo LOCALMENTE (não apaga o que já existe)
+function carregar() {
   const raw = localStorage.getItem(STORAGE_KEY);
   if (raw) {
     try {
@@ -204,64 +166,9 @@ async function carregar() {
       state.congelados = data.congelados && typeof data.congelados === 'object' && !Array.isArray(data.congelados) ? data.congelados : {};
     } catch (e) { console.error("Erro ao carregar JSON:", e); }
   }
-
-  // 2. Se local estiver VAZIO, tenta carregar da nuvem (Supabase)
-  if (state.itens.length === 0 && state.receitas.length === 0 && supabase) {
-    try {
-      const [it, rec, cli, enc, hist, cong] = await Promise.all([
-        supabase.from('itens').select('*'),
-        supabase.from('receitas').select('*'),
-        supabase.from('clientes').select('*'),
-        supabase.from('encomendas').select('*'),
-        supabase.from('historico').select('*').order('quando', { ascending: false }).limit(100),
-        supabase.from('congelados').select('*')
-      ]);
-
-      if (!it.error && it.data?.length > 0) {
-        state.itens = it.data.map(i => ({...i, quantidade: Number(i.quantidade), custoMedio: Number(i.custo_medio), estoqueMinimo: Number(i.estoque_minimo)}));
-        state.receitas = rec.data.map(r => ({...r, rendimento: Number(r.rendimento), precoVenda: Number(r.preco_venda)}));
-        state.clientes = cli.data.map(c => ({...c, ultimaConversa: c.ultima_conversa}));
-        state.encomendas = enc.data.map(e => ({...e, clienteId: e.cliente_id, valorTotal: Number(e.valor_total)}));
-        state.historico = hist.data.map(h => ({...h, id: h.id || uid(), itemId: h.item_id, receitaId: h.receita_id}));
-        state.congelados = {};
-        cong.data?.forEach(c => { state.congelados[c.receita_id] = Number(c.quantidade); });
-        salvar();
-      }
-    } catch (e) { console.error("Erro nuvem:", e); }
-  }
 }
 
-function salvar() { 
-  localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
-  // Sincroniza silenciosamente se houver mudança (opcional, mas seguro)
-}
-
-async function sincronizar(tabela, dados, idExcluir = null) {
-  if (!supabase) return;
-  try {
-    if (idExcluir) {
-      await supabase.from(tabela).delete().eq('id', idExcluir);
-    } else if (tabela === 'congelados') {
-      const lista = Object.entries(state.congelados).map(([rid, qtd]) => ({ receita_id: rid, quantidade: qtd }));
-      await supabase.from('congelados').upsert(lista);
-    } else {
-      const payload = Array.isArray(dados) ? dados : [dados];
-      const formatado = payload.map(d => {
-        const n = {...d};
-        if (n.custoMedio !== undefined) { n.custo_medio = n.custoMedio; delete n.custoMedio; }
-        if (n.estoqueMinimo !== undefined) { n.estoque_minimo = n.estoqueMinimo; delete n.estoqueMinimo; }
-        if (n.precoVenda !== undefined) { n.preco_venda = n.precoVenda; delete n.precoVenda; }
-        if (n.ultimaConversa !== undefined) { n.ultima_conversa = n.ultimaConversa; delete n.ultimaConversa; }
-        if (n.clienteId !== undefined) { n.cliente_id = n.clienteId; delete n.clienteId; }
-        if (n.valorTotal !== undefined) { n.valor_total = n.valorTotal; delete n.valorTotal; }
-        if (n.itemId !== undefined) { n.item_id = n.itemId; delete n.itemId; }
-        if (n.receitaId !== undefined) { n.receita_id = n.receitaId; delete n.receitaId; }
-        return n;
-      });
-      await supabase.from(tabela).upsert(formatado);
-    }
-  } catch (e) { console.error("Erro sincronia:", e); }
-}
+function salvar() { localStorage.setItem(STORAGE_KEY, JSON.stringify(state)); }
 
 function toast(msg, erro = false) {
   const t = document.getElementById("toast");
@@ -275,11 +182,7 @@ function toast(msg, erro = false) {
 function renderizar() {
   try {
     const subtitle = document.querySelector(".subtitle");
-    if (subtitle) {
-        const statusNuvem = supabase ? "✅ Sincronizado" : "💾 Offline";
-        subtitle.innerHTML = `${statusNuvem} - ${getNomeMesAtual()}`;
-        subtitle.style.color = supabase ? "#10b981" : "#f59e0b";
-    }
+    if (subtitle) subtitle.innerHTML = `🥧 Sistema de Confeitaria Ativo - ${getNomeMesAtual()}`;
 
     // 1. Alertas
     const boxAlertas = document.getElementById("alertas-estoque");
@@ -470,13 +373,45 @@ function validarEstoqueEncomenda(enc) {
 }
 
 // ==========================================
-// INICIALIZAÇÃO E EVENTOS
+// INICIALIZAÇÃO E LOGIN
 // ==========================================
 
-async function init() {
-  await carregar();
-  renderizar();
+const SENHA_ACESSO = "Cate150909"
 
+function init() {
+  const loginScreen = document.getElementById("login-screen");
+  const appContainer = document.querySelector(".app");
+  const formLogin = document.getElementById("form-login");
+  const inputSenha = document.getElementById("input-senha");
+  const erroLogin = document.getElementById("login-erro");
+
+  // Verifica se já está logado nesta sessão
+  if (sessionStorage.getItem("estoque_logado") === "true") {
+    showApp();
+  }
+
+  formLogin.onsubmit = (e) => {
+    e.preventDefault();
+    if (inputSenha.value === SENHA_ACESSO) {
+      sessionStorage.setItem("estoque_logado", "true");
+      showApp();
+    } else {
+      erroLogin.classList.remove("hidden");
+      inputSenha.value = "";
+      inputSenha.focus();
+    }
+  };
+
+  function showApp() {
+    loginScreen.classList.add("hidden");
+    appContainer.style.display = "block";
+    carregar();
+    setupEvents();
+    renderizar();
+  }
+}
+
+function setupEvents() {
   document.querySelectorAll(".tab").forEach(tab => {
     tab.onclick = () => {
       const name = tab.dataset.tab;
@@ -486,7 +421,7 @@ async function init() {
     };
   });
 
-  document.getElementById("form-entrada").onsubmit = async (e) => {
+  document.getElementById("form-entrada").onsubmit = (e) => {
     e.preventDefault();
     const id = document.getElementById("entrada-nome").value;
     const qtd = Number(document.getElementById("entrada-qtd").value);
@@ -496,12 +431,11 @@ async function init() {
       item.custoMedio = (item.quantidade * item.custoMedio + preco) / (item.quantidade + qtd);
       item.quantidade += qtd;
       state.historico.unshift({ id: uid(), tipo: 'compra', itemId: id, quantidade: qtd, texto: `Compra: ${qtd}${item.unidade} ${item.nome}`, quando: new Date().toISOString() });
-      salvar(); await sincronizar('itens', item); await sincronizar('historico', state.historico[0]);
-      e.target.reset(); renderizar(); toast("Compra registrada!");
+      salvar(); e.target.reset(); renderizar(); toast("Compra registrada!");
     }
   };
 
-  document.getElementById("form-saida-manual").onsubmit = async (e) => {
+  document.getElementById("form-saida-manual").onsubmit = (e) => {
     e.preventDefault();
     const id = document.getElementById("saida-manual-id").value;
     const qtd = Number(document.getElementById("saida-manual-qtd").value);
@@ -509,12 +443,11 @@ async function init() {
     if (item && item.quantidade >= qtd && qtd > 0) {
       item.quantidade -= qtd;
       state.historico.unshift({ id: uid(), tipo: 'saida', itemId: id, quantidade: qtd, texto: `Saída Manual: ${qtd}${item.unidade} ${item.nome}`, quando: new Date().toISOString() });
-      salvar(); await sincronizar('itens', item); await sincronizar('historico', state.historico[0]);
-      e.target.reset(); renderizar(); toast("Estoque reduzido.");
+      salvar(); e.target.reset(); renderizar(); toast("Estoque reduzido.");
     } else { alert("Saldo insuficiente!"); }
   };
 
-  document.getElementById("form-congelados").onsubmit = async (e) => {
+  document.getElementById("form-congelados").onsubmit = (e) => {
     e.preventDefault();
     const recId = document.getElementById("congelado-receita-id").value;
     const qtd = Number(document.getElementById("congelado-qtd").value);
@@ -523,8 +456,7 @@ async function init() {
       state.congelados[recId] = (state.congelados[recId] || 0) + (qtd * tipo);
       const r = state.receitas.find(x => x.id === recId);
       state.historico.unshift({ id: uid(), tipo: 'congelado', receitaId: recId, quantidade: qtd * tipo, texto: `${tipo > 0 ? 'Entrada' : 'Saída'} Freezer: ${qtd}un ${r?.nome || 'Cookie'}`, quando: new Date().toISOString() });
-      salvar(); await sincronizar('congelados', null); await sincronizar('historico', state.historico[0]);
-      e.target.reset(); renderizar(); toast("Freezer atualizado!");
+      salvar(); e.target.reset(); renderizar(); toast("Freezer atualizado!");
     }
   };
 
@@ -545,66 +477,68 @@ async function init() {
     atualizarValorEncomenda();
   };
 
-  document.getElementById("form-cliente").onsubmit = async (e) => {
+  document.getElementById("form-cliente").onsubmit = (e) => {
     e.preventDefault();
     const idEdit = document.getElementById("cliente-id-edit").value;
     const dConv = document.getElementById("cliente-ultima-conversa").value;
     const dados = { nome: document.getElementById("cliente-nome").value, whatsapp: document.getElementById("cliente-whatsapp").value, conversa: document.getElementById("cliente-conversa").value, ultimaConversa: dConv ? new Date(dConv).toISOString() : new Date().toISOString() };
-    if (idEdit) { const c = state.clientes.find(x => x.id === idEdit); Object.assign(c, dados); await sincronizar('clientes', c); } 
-    else { const novo = { id: uid(), ...dados }; state.clientes.push(novo); await sincronizar('clientes', novo); }
+    if (idEdit) { Object.assign(state.clientes.find(x => x.id === idEdit), dados); } else { state.clientes.push({ id: uid(), ...dados }); }
     salvar(); e.target.reset(); document.getElementById("cliente-id-edit").value = ""; document.getElementById("btn-salvar-cliente").textContent = "Cadastrar"; document.getElementById("btn-cancelar-cliente").classList.add("hidden"); renderizar(); toast("Cliente salvo!");
   };
 
-  document.getElementById("form-nova-receita").onsubmit = async (e) => {
+  document.getElementById("form-nova-receita").onsubmit = (e) => {
     e.preventDefault();
     const idEdit = document.getElementById("receita-id-edit").value;
     const ings = [];
     document.querySelectorAll("#ingredientes-container .enc-linha-row").forEach(row => { ings.push({ itemId: row.querySelector(".ing-select").value, quantidade: Number(row.querySelector(".ing-qtd").value) }); });
     const dados = { nome: document.getElementById("receita-nome").value, rendimento: Number(document.getElementById("receita-rendimento").value) || 1, precoVenda: Number(document.getElementById("receita-preco-venda").value) || 0, ingredientes: ings };
-    if (idEdit) { const r = state.receitas.find(x => x.id === idEdit); Object.assign(r, dados); await sincronizar('receitas', r); } 
-    else { const nova = { id: uid(), ...dados }; state.receitas.push(nova); await sincronizar('receitas', nova); }
+    if (idEdit) { Object.assign(state.receitas.find(x => x.id === idEdit), dados); } else { state.receitas.push({ id: uid(), ...dados }); }
     salvar(); e.target.reset(); document.getElementById("ingredientes-container").innerHTML = ""; document.getElementById("receita-id-edit").value = ""; document.getElementById("btn-salvar-receita").textContent = "Salvar Receita"; document.getElementById("btn-cancelar-receita").classList.add("hidden"); renderizar(); toast("Receita salva!");
   };
 
-  document.getElementById("form-encomenda").onsubmit = async (e) => {
+  document.getElementById("form-encomenda").onsubmit = (e) => {
     e.preventDefault();
     const prods = [];
     document.querySelectorAll("#enc-produtos-container .enc-linha-row").forEach(row => { prods.push({ receitaId: row.querySelector(".prod-select").value, quantidade: Number(row.querySelector(".prod-qtd").value) }); });
     const cId = document.getElementById("enc-cliente-select").value;
     const dEnt = document.getElementById("enc-data-entrega").value;
-    const nova = { id: uid(), clienteId: cId, dataEntrega: dEnt || new Date().toISOString().split('T')[0], titulo: document.getElementById("enc-titulo").value, valorTotal: Number(document.getElementById("enc-valor-total").value), produtos: prods, status: { pago: false, massaFeita: false, assado: false, tudoPronto: false, entregue: false } };
-    state.encomendas.push(nova);
-    salvar(); await sincronizar('encomendas', nova);
-    const cli = state.clientes.find(c => c.id === cId); if (cli) { cli.ultimaConversa = new Date().toISOString(); await sincronizar('clientes', cli); }
-    e.target.reset(); document.getElementById("enc-produtos-container").innerHTML = ""; renderizar(); toast("Pedido registrado!");
+    state.encomendas.push({ id: uid(), clienteId: cId, dataEntrega: dEnt || new Date().toISOString().split('T')[0], titulo: document.getElementById("enc-titulo").value, valorTotal: Number(document.getElementById("enc-valor-total").value), produtos: prods, status: { pago: false, massaFeita: false, assado: false, tudoPronto: false, entregue: false } });
+    const cli = state.clientes.find(c => c.id === cId);
+    if (cli) cli.ultimaConversa = new Date().toISOString();
+    salvar(); e.target.reset(); document.getElementById("enc-produtos-container").innerHTML = ""; renderizar(); toast("Pedido registrado!");
   };
 
-  document.getElementById("form-produzir").onsubmit = async (e) => {
+  document.getElementById("form-produzir").onsubmit = (e) => {
     e.preventDefault();
     const r = state.receitas.find(x => x.id === document.getElementById("produzir-receita-id").value);
     const mult = Number(document.getElementById("produzir-qtd").value);
     if (r && mult > 0) {
       const custoT = calcularCustoReceita(r) * mult;
+      const lucroG = (r.precoVenda * mult) - custoT;
       const dets = [];
-      for (const ing of (r.ingredientes || [])) { const item = state.itens.find(i => i.id === ing.itemId); if (item) { const q = ing.quantidade * mult; item.quantidade -= q; dets.push({ itemId: ing.itemId, quantidade: q }); await sincronizar('itens', item); } }
-      state.historico.unshift({ id: uid(), tipo: 'producao', lucro: (r.precoVenda * mult) - custoT, detalhesIngredientes: dets, texto: `Produção: ${mult}x ${r.nome}`, quando: new Date().toISOString() });
-      salvar(); await sincronizar('historico', state.historico[0]);
-      e.target.reset(); renderizar(); toast("Estoque baixado!");
+      (r.ingredientes || []).forEach(ing => {
+        const item = state.itens.find(i => i.id === ing.itemId);
+        if (item) { const q = ing.quantidade * mult; item.quantidade -= q; dets.push({ itemId: ing.itemId, quantidade: q }); }
+      });
+      state.historico.unshift({ id: uid(), tipo: 'producao', lucro: lucroG, detalhesIngredientes: dets, texto: `Produção: ${mult}x ${r.nome}`, quando: new Date().toISOString() });
+      salvar(); e.target.reset(); renderizar(); toast("Estoque baixado!");
     }
   };
 
-  document.getElementById("form-novo-item").onsubmit = async (e) => {
+  document.getElementById("form-novo-item").onsubmit = (e) => {
     e.preventDefault();
     const idEdit = document.getElementById("insumo-id-edit").value;
     const dados = { nome: document.getElementById("novo-item-nome").value, unidade: document.getElementById("novo-item-unidade").value, custoMedio: Number(document.getElementById("novo-item-custo").value) || 0, estoqueMinimo: Number(document.getElementById("novo-item-minimo").value) || 0 };
-    if (idEdit) { const it = state.itens.find(x => x.id === idEdit); Object.assign(it, dados); await sincronizar('itens', it); } 
-    else { const novo = { id: uid(), ...dados, quantidade: 0 }; state.itens.push(novo); await sincronizar('itens', novo); }
+    if (idEdit) { Object.assign(state.itens.find(x => x.id === idEdit), dados); } 
+    else { state.itens.push({ id: uid(), ...dados, quantidade: 0 }); }
     salvar(); e.target.reset(); document.getElementById("insumo-id-edit").value = ""; document.getElementById("titulo-form-insumo").textContent = "Novo Insumo"; document.getElementById("btn-salvar-insumo").textContent = "Criar Insumo"; document.getElementById("btn-cancelar-insumo").classList.add("hidden"); renderizar(); toast("Insumo salvo!");
   };
 
   document.getElementById("btn-cancelar-insumo").onclick = () => { document.getElementById("form-novo-item").reset(); document.getElementById("insumo-id-edit").value = ""; document.getElementById("titulo-form-insumo").textContent = "Novo Insumo"; document.getElementById("btn-salvar-insumo").textContent = "Criar Insumo"; document.getElementById("btn-cancelar-insumo").classList.add("hidden"); };
   document.getElementById("btn-cancelar-receita").onclick = () => { document.getElementById("form-nova-receita").reset(); document.getElementById("ingredientes-container").innerHTML = ""; document.getElementById("receita-id-edit").value = ""; document.getElementById("btn-salvar-receita").textContent = "Salvar Receita"; document.getElementById("btn-cancelar-receita").classList.add("hidden"); };
   document.getElementById("btn-cancelar-cliente").onclick = () => { document.getElementById("form-cliente").reset(); document.getElementById("cliente-id-edit").value = ""; document.getElementById("btn-salvar-cliente").textContent = "Cadastrar"; document.getElementById("btn-cancelar-cliente").classList.add("hidden"); };
+
+  renderizar();
 }
 
-init();
+window.onload = init;

@@ -15,7 +15,21 @@
   <link href="https://fonts.googleapis.com/css2?family=DM+Sans:ital,opsz,wght@0,9..40,400;0,9..40,500;0,9..40,600;0,9..40,700;1,9..40,400&display=swap" rel="stylesheet" />
 </head>
 <body>
-  <div class="app">
+  <!-- Tela de Login -->
+  <div id="login-screen" class="login-overlay">
+    <div class="login-card">
+      <div class="login-icon">🔐</div>
+      <h2>Acesso Restrito</h2>
+      <p>Digite a senha para acessar o sistema.</p>
+      <form id="form-login">
+        <input type="password" id="input-senha" placeholder="Sua senha" required autofocus>
+        <button type="submit" class="btn-salvar">Entrar</button>
+      </form>
+      <p id="login-erro" class="login-erro hidden">Senha incorreta!</p>
+    </div>
+  </div>
+
+  <div class="app" style="display: none;">
     <header class="header">
       <h1>Estoque &amp; receitas</h1>
       <p class="subtitle">Carregando sistema...</p>
