@@ -10,9 +10,26 @@
   <link href="https://fonts.googleapis.com/css2?family=DM+Sans:ital,opsz,wght@0,9..40,400;0,9..40,500;0,9..40,600;0,9..40,700;1,9..40,400&display=swap" rel="stylesheet" />
 </head>
 <body>
-  <div class="app">
+  <!-- TELA DE LOGIN -->
+  <div id="auth-container" class="auth-overlay">
+    <div class="auth-card">
+      <h2>🍪 Acesso Restrito</h2>
+      <p>Faça login para gerenciar seu estoque.</p>
+      <form id="form-login">
+        <input type="email" id="login-email" placeholder="Seu e-mail" required />
+        <input type="password" id="login-senha" placeholder="Sua senha" required />
+        <button type="submit" class="btn btn-primary">Entrar no Sistema</button>
+      </form>
+      <p id="login-msg" class="muted-small" style="color:red; margin-top:1rem"></p>
+    </div>
+  </div>
+
+  <div class="app" id="main-app" style="display:none">
     <header class="header">
-      <h1>Estoque &amp; receitas</h1>
+      <div class="flex-row" style="justify-content:space-between; width:100%">
+        <h1>Estoque &amp; receitas</h1>
+        <button onclick="logout()" class="btn-mini" style="background:transparent; border-color:var(--muted); color:var(--muted)">Sair</button>
+      </div>
       <p class="subtitle">Carregando sistema...</p>
     </header>
 
@@ -249,6 +266,17 @@
   </div>
 
   <div id="toast" class="toast"></div>
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+  <script src="app_config.js"></script>
   <script src="app.js"></script>
+  <script>
+    if ('serviceWorker' in navigator) {
+      window.addEventListener('load', () => {
+        navigator.serviceWorker.register('./sw.js')
+          .then(reg => console.log('App pronto para instalar!', reg))
+          .catch(err => console.error('Erro Service Worker:', err));
+      });
+    }
+  </script>
 </body>
 </html>
