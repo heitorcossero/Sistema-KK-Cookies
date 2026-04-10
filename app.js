@@ -47,9 +47,14 @@ async function login(email, password) {
   msg.style.color = "var(--accent-in)";
   msg.textContent = "Verificando...";
   
-  if (!supabase) {
+  // Recurso extra: Tentar achar o supabase no window se ele sumiu
+  if (!supabase && window.supabase) {
+    supabase = window.supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
+  }
+
+  if (!supabase || !supabase.auth) {
     msg.style.color = "red";
-    msg.textContent = "Erro: Supabase não configurado corretamente.";
+    msg.textContent = "Erro: A conexão com o banco de dados falhou. Recarregue a página.";
     return;
   }
 
@@ -63,7 +68,7 @@ async function login(email, password) {
     }
   } catch (err) {
     msg.style.color = "red";
-    msg.textContent = "Erro técnico: " + (err.message || "Sem resposta do servidor");
+    msg.textContent = "Erro técnico no servidor de acesso.";
     console.error(err);
   }
 }
