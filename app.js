@@ -3,7 +3,11 @@ let supabase = null;
 const initSupabase = () => {
   if (supabase) return supabase;
   try {
-    const create = window.supabase?.createClient || window.supabaseJs?.createClient;
+    // Tenta encontrar o criador de clientes em diferentes locais comuns da biblioteca v2
+    const create = window.supabase?.createClient || 
+                   (typeof supabase !== 'undefined' ? supabase.createClient : null) ||
+                   (window.supabaseJs?.createClient);
+                   
     if (create) {
       supabase = create(SUPABASE_URL, SUPABASE_KEY);
       return supabase;
