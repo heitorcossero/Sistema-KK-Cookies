@@ -7,7 +7,13 @@ const isSupabaseConfigured = SUPABASE_URL !== "SUA_URL_AQUI" && SUPABASE_KEY !==
 
 if (isSupabaseConfigured) {
   try {
-    supabase = window.supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
+    // Na v2, o objeto global pode ser 'supabase' diretamente ou 'window.supabase'
+    const createClient = window.supabase?.createClient || window.supabaseJs?.createClient;
+    if (createClient) {
+      supabase = createClient(SUPABASE_URL, SUPABASE_KEY);
+    } else {
+      console.error("Biblioteca Supabase não encontrada no window.");
+    }
   } catch (e) {
     console.error("Erro ao inicializar Supabase:", e);
   }
