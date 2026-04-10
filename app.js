@@ -9,6 +9,15 @@ try {
     supabase = window.supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
   }
 } catch (e) { console.error("Erro Supabase:", e); }
+const SUPABASE_URL = "https://wxhkizdgpvizhzibxgkt.supabase.co";
+const SUPABASE_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Ind4aGtpemRncHZpemh6aWJ4Z2t0Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzU2MDg3NzcsImV4cCI6MjA5MTE4NDc3N30.X39g8gvk7Hb932vltuvANNGiKF7cZCoQsUHE1Mm7mtY";
+
+let supabase = null;
+try {
+  if (typeof window.supabase !== 'undefined') {
+    supabase = window.supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
+  }
+} catch (e) { console.error("Erro Supabase:", e); }
 
 const state = {
   itens: [],
@@ -159,10 +168,10 @@ window.excluir = (tabela, id) => {
 };
 
 // ==========================================
-// GESTÃO DE DADOS
+// GESTÃO DE DADOS E NUVEM
 // ==========================================
 
-function carregar() {
+async function carregar() {
   const raw = localStorage.getItem(STORAGE_KEY);
   if (raw) {
     try {
@@ -173,11 +182,76 @@ function carregar() {
       state.encomendas = (data.encomendas || []).map(e => ({...e, valorTotal: Number(e.valorTotal ?? e.valor_total) || 0, produtos: Array.isArray(e.produtos) ? e.produtos : (Array.isArray(e.itens) ? e.itens : []), status: e.status || { pago: false, massaFeita: false, assado: false, tudoPronto: false, entregue: false }}));
       state.historico = (data.historico || []).map(h => ({...h, id: h.id || uid()}));
       state.congelados = data.congelados && typeof data.congelados === 'object' && !Array.isArray(data.congelados) ? data.congelados : {};
+      renderizar();
     } catch (e) { console.error("Erro ao carregar JSON:", e); }
+  }
+
+  if (supabase) {
+    try {
+      const { data: it } = await supabase.from('itens').select('*');
+      if (it && it.length > 0) {
+        const { data: rec } = await supabase.from('receitas').select('*');
+        const { data: cli } = await supabase.from('clientes').select('*');
+        const { data: enc } = await supabase.from('encomendas').select('*');
+        const { data: hist } = await supabase.from('historico').select('*').order('quando', { ascending: false }).limit(50);
+        const { data: cong } = await supabase.from('congelados').select('*');
+
+        state.itens = it.map(i => ({...i, quantidade: Number(i.quantidade), custoMedio: Number(i.custo_medio), estoqueMinimo: Number(i.estoque_minimo)}));
+        state.receitas = (rec || []).map(r => ({...r, rendimento: Number(r.rendimento), precoVenda: Number(r.preco_venda)}));
+        state.clientes = (cli || []).map(c => ({...c, ultimaConversa: c.ultima_conversa}));
+        state.encomendas = (enc || []).map(e => ({...e, clienteId: e.cliente_id, valorTotal: Number(e.valor_total)}));
+        state.historico = (hist || []).map(h => ({...h, id: h.id || uid(), itemId: h.item_id, receitaId: h.receita_id}));
+        state.congelados = {};
+        (cong || []).forEach(c => { state.congelados[c.receita_id] = Number(c.quantidade); });
+        salvarLocal();
+        renderizar();
+      }
+    } catch (e) { console.log("Offline."); }
   }
 }
 
-function salvar() { localStorage.setItem(STORAGE_KEY, JSON.stringify(state)); }
+function salvarLocal() { localStorage.setItem(STORAGE_KEY, JSON.stringify(state)); }
+function salvar() { salvarLocal(); }
+
+async function sincronizar(tabela, dados, idExcluir = null) {
+  if (!supabase) return;
+  try {
+    if (idExcluir) {
+      await supabase.from(tabela).delete().eq('id', idExcluir);
+    } else if (tabela === 'congelados') {
+      const lista = Object.entries(state.congelados).map(([rid, qtd]) => ({ receita_id: rid, quantidade: qtd }));
+      await supabase.from('congelados').upsert(lista);
+    } else {
+      const payload = Array.isArray(dados) ? dados : [dados];
+      const formatado = payload.map(d => {
+        const n = {...d};
+        if (n.custoMedio !== undefined) { n.custo_medio = n.custoMedio; delete n.custoMedio; }
+        if (n.estoqueMinimo !== undefined) { n.estoque_minimo = n.estoqueMinimo; delete n.estoqueMinimo; }
+        if (n.precoVenda !== undefined) { n.preco_venda = n.precoVenda; delete n.precoVenda; }
+        if (n.ultimaConversa !== undefined) { n.ultima_conversa = n.ultimaConversa; delete n.ultimaConversa; }
+        if (n.clienteId !== undefined) { n.cliente_id = n.clienteId; delete n.clienteId; }
+        if (n.valorTotal !== undefined) { n.valor_total = n.valorTotal; delete n.valorTotal; }
+        if (n.itemId !== undefined) { n.item_id = n.itemId; delete n.itemId; }
+        if (n.receitaId !== undefined) { n.receita_id = n.receitaId; delete n.receitaId; }
+        return n;
+      });
+      await supabase.from(tabela).upsert(formatado);
+    }
+  } catch (e) { console.error("Erro sincronia:", e); }
+}
+
+window.migrarParaNuvem = async () => {
+  if (!supabase) { toast("Sem nuvem", true); return; }
+  if (!confirm("Subir tudo deste PC para a Nuvem?")) return;
+  toast("Sincronizando...");
+  await sincronizar('itens', state.itens);
+  await sincronizar('receitas', state.receitas);
+  await sincronizar('clientes', state.clientes);
+  await sincronizar('encomendas', state.encomendas);
+  await sincronizar('historico', state.historico);
+  await sincronizar('congelados', null);
+  toast("✅ Sucesso!");
+};
 
 function toast(msg, erro = false) {
   const t = document.getElementById("toast");
