@@ -1,13 +1,15 @@
 // CONFIGURAÇÕES
-const STORAGE_KEY = "controle_estoque_v2";
-
-const state = {
-  itens: [],
-  receitas: [],
-  clientes: [],
-  encomendas: [],
-  historico: [],
-  congelados: {}
+let supabase = null;
+const initSupabase = () => {
+  if (supabase) return supabase;
+  try {
+    const create = window.supabase?.createClient || window.supabaseJs?.createClient;
+    if (create) {
+      supabase = create(SUPABASE_URL, SUPABASE_KEY);
+      return supabase;
+    }
+  } catch(e) { console.error("Falha Supabase:", e); }
+  return null;
 };
 
 // ==========================================
@@ -15,18 +17,13 @@ const state = {
 // ==========================================
 
 async function verificarSessao() {
-  if (!supabase) {
-    console.error("Supabase não inicializado. Verifique app_config.js");
-    // Se não tem Supabase, deixa entrar no modo local por segurança, 
-    // ou você pode mudar para false para forçar configuração
-    document.getElementById("auth-container").style.display = "none";
-    document.getElementById("main-app").style.display = "block";
-    return true; 
+  const s = initSupabase();
+  if (!s || !s.auth) {
+    console.error("Supabase não carregado.");
+    return false;
   }
   try {
-    const { data: { session }, error } = await supabase.auth.getSession();
-    if (error) throw error;
-    
+    const { data: { session }, error } = await s.auth.getSession();
     if (session) {
       document.getElementById("auth-container").style.display = "none";
       document.getElementById("main-app").style.display = "block";
@@ -47,19 +44,15 @@ async function login(email, password) {
   msg.style.color = "var(--accent-in)";
   msg.textContent = "Verificando...";
   
-  // Recurso extra: Tentar achar o supabase no window se ele sumiu
-  if (!supabase && window.supabase) {
-    supabase = window.supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
-  }
-
-  if (!supabase || !supabase.auth) {
+  const s = initSupabase();
+  if (!s || !s.auth) {
     msg.style.color = "red";
-    msg.textContent = "Erro: A conexão com o banco de dados falhou. Recarregue a página.";
+    msg.textContent = "Aguarde carregando sistema...";
     return;
   }
 
   try {
-    const { error } = await supabase.auth.signInWithPassword({ email, password });
+    const { error } = await s.auth.signInWithPassword({ email, password });
     if (error) {
       msg.style.color = "red";
       msg.textContent = "Erro: " + error.message;
@@ -68,7 +61,7 @@ async function login(email, password) {
     }
   } catch (err) {
     msg.style.color = "red";
-    msg.textContent = "Erro técnico no servidor de acesso.";
+    msg.textContent = "Erro de conexão inesperado.";
     console.error(err);
   }
 }
