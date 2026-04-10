@@ -494,7 +494,7 @@ function setupEvents() {
     const dados = { nome: document.getElementById("receita-nome").value, rendimento: Number(document.getElementById("receita-rendimento").value) || 1, precoVenda: Number(document.getElementById("receita-preco-venda").value) || 0, ingredientes: ings };
     if (idEdit) { Object.assign(state.receitas.find(x => x.id === idEdit), dados); } else { state.receitas.push({ id: uid(), ...dados }); }
     salvar(); e.target.reset(); document.getElementById("ingredientes-container").innerHTML = ""; document.getElementById("receita-id-edit").value = ""; document.getElementById("btn-salvar-receita").textContent = "Salvar Receita"; document.getElementById("btn-cancelar-receita").classList.add("hidden"); renderizar(); toast("Receita salva!");
-  };
+    };
 
   document.getElementById("form-encomenda").onsubmit = (e) => {
     e.preventDefault();
