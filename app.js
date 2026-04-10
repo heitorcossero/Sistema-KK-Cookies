@@ -284,28 +284,33 @@ async function carregar() {
 
 async function salvar(tabela = null, dados = null) {
   localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
-  if (supabase && tabela && dados) {
+  
+  // Acorda o Supabase antes de tentar salvar
+  const s = initSupabase();
+  
+  if (s && tabela && dados) {
     try {
       const payload = Array.isArray(dados) ? dados : [dados];
       const dbPayload = payload.map(d => {
         const obj = {...d};
-        if (obj.custoMedio !== undefined) { obj.custo_medio = obj.custoMedio; delete obj.custoMedio; }
-        if (obj.estoqueMinimo !== undefined) { obj.estoque_minimo = obj.estoqueMinimo; delete obj.estoqueMinimo; }
+        // Mapeamento CamelCase (JS) -> snake_case (SQL)
+        if (obj.custoMedio !== undefined) { obj.custo_medio = Number(obj.custoMedio); delete obj.custoMedio; }
+        if (obj.estoqueMinimo !== undefined) { obj.estoque_minimo = Number(obj.estoqueMinimo); delete obj.estoqueMinimo; }
         if (obj.ultimaConversa !== undefined) { obj.ultima_conversa = obj.ultimaConversa; delete obj.ultimaConversa; }
         if (obj.clienteId !== undefined) { obj.cliente_id = obj.clienteId; delete obj.clienteId; }
-        if (obj.valorTotal !== undefined) { obj.valor_total = obj.valorTotal; delete obj.valorTotal; }
+        if (obj.valorTotal !== undefined) { obj.valor_total = Number(obj.valorTotal); delete obj.valorTotal; }
         if (obj.dataEntrega !== undefined) { obj.data_entrega = obj.dataEntrega; delete obj.dataEntrega; }
         if (obj.receitaId !== undefined) { obj.receita_id = obj.receitaId; delete obj.receitaId; }
-        if (obj.precoVenda !== undefined) { obj.preco_venda = obj.precoVenda; delete obj.precoVenda; }
+        if (obj.precoVenda !== undefined) { obj.preco_venda = Number(obj.precoVenda); delete obj.precoVenda; }
         if (obj.itemId !== undefined) { obj.item_id = obj.itemId; delete obj.itemId; }
         if (obj.detalhesIngredientes !== undefined) { obj.detalhes_ingredientes = obj.detalhesIngredientes; delete obj.detalhesIngredientes; }
         return obj;
       });
-      const { error } = await supabase.from(tabela).upsert(dbPayload);
+      const { error } = await s.from(tabela).upsert(dbPayload);
       if (error) throw error;
     } catch (err) { 
       console.error("Erro salvar Supabase:", err);
-      toast("⚠️ Erro ao sincronizar: " + err.message, true);
+      toast("⚠️ Erro sincronia: " + err.message, true);
     }
   }
 }
@@ -688,7 +693,8 @@ async function init() {
       state.itens.push(novo); 
       await salvar('itens', novo);
     }
-    e.target.reset(); document.getElementById("insumo-id-edit").value = ""; document.getElementById("titulo-form-insumo").textContent = "Novo Insumo"; document.getElementById("btn-salvar-insumo").textContent = "Criar Insumo"; document.getElementById("btn-cancelar-insumo").classList.add("hidden"); renderizar(); toast("Insumo salvo!");
+    renderizar(); // Atualiza a lista na tela imediatamente
+    e.target.reset(); document.getElementById("insumo-id-edit").value = ""; document.getElementById("titulo-form-insumo").textContent = "Novo Insumo"; document.getElementById("btn-salvar-insumo").textContent = "Criar Insumo"; document.getElementById("btn-cancelar-insumo").classList.add("hidden"); toast("Insumo salvo!");
   };
 
   document.getElementById("btn-cancelar-insumo").onclick = () => { document.getElementById("form-novo-item").reset(); document.getElementById("insumo-id-edit").value = ""; document.getElementById("titulo-form-insumo").textContent = "Novo Insumo"; document.getElementById("btn-salvar-insumo").textContent = "Criar Insumo"; document.getElementById("btn-cancelar-insumo").classList.add("hidden"); };
