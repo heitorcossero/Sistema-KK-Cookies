@@ -4,6 +4,11 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>Controle de estoque e receitas</title>
+  <link rel="manifest" href="manifest.json" />
+  <meta name="apple-mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-status-bar-style" content="default" />
+  <meta name="apple-mobile-web-app-title" content="EstoqueDoces" />
+  <link rel="apple-touch-icon" href="https://cdn-icons-png.flaticon.com/512/3496/3496683.png" />
   <link rel="stylesheet" href="style.css" />
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
@@ -218,6 +223,12 @@
           <h3>🚀 Potencial do Estoque</h3>
           <p id="lucro-markup-estoque" class="valor-total" style="color:var(--money)">R$ 0,00</p>
           <p class="muted-small">Lucro estimado ao vender o estoque (Markup 3.7).</p>
+        </section>
+
+        <section class="card">
+          <h3>🍪 Média por Pedido</h3>
+          <p id="media-cookies-pedido" class="valor-total" style="color:var(--accent-in)">0 un</p>
+          <p class="muted-small">Quantidade média de cookies por encomenda.</p>
         </section>
       </div>
 
