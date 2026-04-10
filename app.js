@@ -210,7 +210,6 @@ window.excluir = (tabela, id) => {
 // ==========================================
 
 async function carregar() {
-  // 1. Carrega o que está no celular/PC primeiro (instantâneo)
   const raw = localStorage.getItem(STORAGE_KEY);
   if (raw) {
     try {
@@ -225,7 +224,6 @@ async function carregar() {
     } catch (e) { console.error("Erro ao carregar JSON:", e); }
   }
 
-  // 2. Busca na nuvem sem travar a tela
   if (supabase) {
     try {
       const { data: it } = await supabase.from('itens').select('*');
@@ -451,35 +449,38 @@ function validarEstoqueEncomenda(enc) {
 // INICIALIZAÇÃO E LOGIN
 // ==========================================
 
+const showApp = () => {
+  document.getElementById("login-screen").style.display = "none";
+  document.querySelector(".app").style.display = "block";
+  carregar();
+  setupEvents();
+};
+
 function init() {
-  const loginScreen = document.getElementById("login-screen");
-  const appContainer = document.querySelector(".app");
+  initSupabase();
   const formLogin = document.getElementById("form-login");
   const inputSenha = document.getElementById("input-senha");
   const erroLogin = document.getElementById("login-erro");
 
-  initSupabase();
-
-  if (sessionStorage.getItem("estoque_logado") === "true") { showApp(); }
+  // Se já logou nesta aba, pula
+  if (sessionStorage.getItem("estoque_logado") === "true") {
+    showApp();
+    return;
+  }
 
   formLogin.onsubmit = (e) => {
     e.preventDefault();
+    e.stopPropagation(); // Garante que o navegador não processe o envio tradicional
+    
     if (inputSenha.value === SENHA_ACESSO) {
       sessionStorage.setItem("estoque_logado", "true");
       showApp();
     } else {
       erroLogin.classList.remove("hidden");
       inputSenha.value = "";
-      inputSenha.focus();
     }
+    return false; // Trava extra para evitar reload
   };
-
-  function showApp() {
-    loginScreen.style.display = "none";
-    appContainer.style.display = "block";
-    carregar(); // Busca os dados em segundo plano
-    setupEvents();
-  }
 }
 
 function setupEvents() {
