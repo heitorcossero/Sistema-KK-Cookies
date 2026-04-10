@@ -4,32 +4,32 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>Controle de estoque e receitas</title>
-  <link rel="manifest" href="manifest.json" />
-  <meta name="apple-mobile-web-app-capable" content="yes" />
-  <meta name="apple-mobile-web-app-status-bar-style" content="default" />
-  <meta name="apple-mobile-web-app-title" content="EstoqueDoces" />
-  <link rel="apple-touch-icon" href="https://cdn-icons-png.flaticon.com/512/3496/3496683.png" />
   <link rel="stylesheet" href="style.css" />
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link href="https://fonts.googleapis.com/css2?family=DM+Sans:ital,opsz,wght@0,9..40,400;0,9..40,500;0,9..40,600;0,9..40,700;1,9..40,400&display=swap" rel="stylesheet" />
 </head>
-<body>
-  <!-- Tela de Login -->
-  <div id="login-screen" class="login-overlay">
-    <div class="login-card">
-      <div class="login-icon">🔐</div>
-      <h2>Acesso Restrito</h2>
-      <p>Digite a senha para acessar o sistema.</p>
-      <div id="login-form-simples">
-        <input type="password" id="input-senha" placeholder="Sua senha" autofocus>
-        <button type="button" class="btn-salvar" onclick="tentarLogar()">Entrar</button>
-      </div>
-      <p id="login-erro" class="login-erro hidden">Senha incorreta!</p>
-    </div>
-  </div>
-
-  <div class="app" style="display: none;">
+<body style="visibility: hidden;">
+  <script>
+    (function() {
+      const senhaCorreta = "Cate150909";
+      const logado = sessionStorage.getItem("sistema_logado");
+      
+      if (logado === "true") {
+        document.body.style.visibility = "visible";
+      } else {
+        const pass = prompt("🔐 Acesso Restrito - Digite a senha:");
+        if (pass === senhaCorreta) {
+          sessionStorage.setItem("sistema_logado", "true");
+          document.body.style.visibility = "visible";
+        } else {
+          alert("Senha incorreta!");
+          window.location.reload();
+        }
+      }
+    })();
+  </script>
+  <div class="app">
     <header class="header">
       <h1>Estoque &amp; receitas</h1>
       <p class="subtitle">Carregando sistema...</p>
@@ -268,7 +268,6 @@
   </div>
 
   <div id="toast" class="toast"></div>
-  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
   <script src="app.js"></script>
 </body>
 </html>
