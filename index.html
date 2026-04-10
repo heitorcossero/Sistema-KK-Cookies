@@ -9,7 +9,6 @@
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link href="https://fonts.googleapis.com/css2?family=DM+Sans:ital,opsz,wght@0,9..40,400;0,9..40,500;0,9..40,600;0,9..40,700;1,9..40,400&display=swap" rel="stylesheet" />
   <style>
-    /* Estilo de emergência para a trava de login */
     #trava-seguranca {
       position: fixed; top: 0; left: 0; width: 100%; height: 100%;
       background: #0f1419; color: white; z-index: 99999;
@@ -29,34 +28,15 @@
       <h2>🔐 Acesso Restrito</h2>
       <p>Digite a senha para entrar</p>
       <input type="password" id="senha-input" placeholder="Senha">
-      <button onclick="verificarSenha()">Entrar</button>
+      <button onclick="tentarLogarManual()">Entrar</button>
       <p id="erro-trava" class="erro-msg">Senha incorreta!</p>
     </div>
   </div>
 
-  <script>
-    function verificarSenha() {
-      const senhaCorreta = "Cate150909";
-      const digitada = document.getElementById("senha-input").value;
-      if (digitada === senhaCorreta) {
-        sessionStorage.setItem("logado_ok", "true");
-        document.getElementById("trava-seguranca").style.display = "none";
-      } else {
-        document.getElementById("erro-trava").style.display = "block";
-        document.getElementById("senha-input").value = "";
-      }
-    }
-    // Mantém logado se já digitou a senha nesta aba
-    if (sessionStorage.getItem("logado_ok") === "true") {
-      document.getElementById("trava-seguranca").style.display = "none";
-    }
-  </script>
-
-  <!-- O SISTEMA ORIGINAL COMEÇA AQUI -->
-  <div class="app">
+  <div class="app" style="display: none;" id="corpo-sistema">
     <header class="header">
       <h1>Estoque &amp; receitas</h1>
-      <p class="subtitle">Carregando sistema...</p>
+      <p class="subtitle">Conectando...</p>
     </header>
 
     <nav class="tabs" role="tablist" aria-label="Seções do sistema">
@@ -156,7 +136,7 @@
       <div id="lista-clientes" class="lista-encomendas"></div>
     </div>
 
-    <!-- Aba Editar (Insumos e Receitas) -->
+    <!-- Aba Editar -->
     <div id="panel-editar" class="tab-panel" role="tabpanel" aria-labelledby="tab-editar">
       <section class="card card-wide">
         <h2 id="titulo-form-insumo">🛠️ Novo Insumo</h2>
@@ -179,18 +159,16 @@
       </section>
 
       <section class="card card-wide">
-        <h2>🍪 Nova Receita (Base p/ Custos)</h2>
+        <h2>🍪 Nova Receita</h2>
         <form id="form-nova-receita" class="form">
           <input type="hidden" id="receita-id-edit" />
           <div class="grid">
             <label><span>Nome da Receita</span><input type="text" id="receita-nome" required /></label>
-            <label><span>Preço de Venda Sugerido (R$)</span><input type="number" id="receita-preco-venda" step="0.01" required /></label>
+            <label><span>Preço de Venda (R$)</span><input type="number" id="receita-preco-venda" step="0.01" required /></label>
           </div>
-          <label><span>Rendimento (Quantas unidades rende?)</span><input type="number" id="receita-rendimento" step="1" value="1" required /></label>
-          
+          <label><span>Rendimento (un)</span><input type="number" id="receita-rendimento" step="1" value="1" required /></label>
           <div id="ingredientes-container" class="enc-linhas-editor" style="margin-top:1rem"></div>
           <button type="button" id="btn-add-ingrediente" class="btn btn-ghost" style="margin-bottom:1rem">+ Adicionar Ingrediente</button>
-          
           <div class="btn-row">
             <button type="submit" id="btn-salvar-receita" class="btn btn-primary">Salvar Receita</button>
             <button type="button" id="btn-cancelar-receita" class="btn btn-ghost hidden">Cancelar</button>
@@ -202,58 +180,22 @@
 
     <!-- Aba Informações -->
     <div id="panel-info" class="tab-panel" role="tabpanel" aria-labelledby="tab-info">
-      <div id="lista-compras-consolidada" class="enc-banner"></div>
-
       <div class="grid-3">
-        <section class="card card-valor">
-          <h3 class="valor-titulo">💰 Capital em Estoque</h3>
-          <p id="valor-total" class="valor-total">R$ 0,00</p>
-          <p class="muted-small">Total investido nos insumos atuais.</p>
-        </section>
-
-        <section class="card card-markup-simp">
-          <h3>📈 Lucro Realizado</h3>
-          <p id="lucro-producoes" class="valor-total" style="color:var(--accent-in)">R$ 0,00</p>
-          <p class="muted-small">Soma do lucro das produções registradas.</p>
-        </section>
-
-        <section class="card">
-          <h3>🚀 Potencial do Estoque</h3>
-          <p id="lucro-markup-estoque" class="valor-total" style="color:var(--money)">R$ 0,00</p>
-          <p class="muted-small">Lucro estimado ao vender o estoque (Markup 3.7).</p>
-        </section>
-      </div>
-
-      <div class="grid-2">
-        <section class="card card-wide">
-          <h2>📊 Desempenho por Sabor (Este Mês)</h2>
-          <div id="lista-desempenho-sabores">
-            <!-- Gerado via JS -->
-          </div>
-        </section>
-
-        <section class="card card-wide">
-          <h2>🏭 Registrar Produção</h2>
-          <p class="muted-small">Escolha a receita e a quantidade para baixar o estoque automaticamente.</p>
-          <form id="form-produzir" class="form">
-            <label><span>Receita</span><select id="produzir-receita-id" required><option value="">Selecione...</option></select></label>
-            <label><span>Qtd Produzida</span><input type="number" id="produzir-qtd" step="any" required /></label>
-            <button type="submit" class="btn btn-primary">Baixar Ingredientes</button>
-          </form>
-        </section>
+        <section class="card card-valor"><h3>💰 Capital em Estoque</h3><p id="valor-total" class="valor-total">R$ 0,00</p></section>
+        <section class="card card-markup-simp"><h3>📈 Lucro Realizado</h3><p id="lucro-producoes" class="valor-total" style="color:var(--accent-in)">R$ 0,00</p></section>
+        <section class="card"><h3>🍪 Média por Pedido</h3><p id="media-cookies-pedido" class="valor-total" style="color:var(--accent-in)">0 un</p></section>
       </div>
 
       <section class="card card-wide">
-        <h2>☁️ Sincronização em Nuvem</h2>
-        <p class="muted-small">Use os botões abaixo para forçar a atualização entre dispositivos.</p>
-        <div class="flex-row" style="margin-top: 1rem; gap: 10px;">
-          <button type="button" class="btn btn-primary" onclick="migrarParaNuvem()" style="flex:1">⬆️ Enviar para Nuvem</button>
+        <h2>☁️ Nuvem</h2>
+        <div class="flex-row" style="gap:10px">
+          <button type="button" class="btn btn-primary" onclick="migrarParaNuvem()" style="flex:1">⬆️ Enviar p/ Nuvem</button>
           <button type="button" class="btn btn-secondary" onclick="carregar()" style="flex:1">⬇️ Baixar da Nuvem</button>
         </div>
       </section>
 
       <section class="card card-wide">
-        <h2>📜 Últimos Lançamentos (Editar/Apagar)</h2>
+        <h2>📜 Histórico</h2>
         <ul id="lista-historico-estoque" class="lista-historico"></ul>
       </section>
     </div>
@@ -262,5 +204,25 @@
   <div id="toast" class="toast"></div>
   <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
   <script src="app.js"></script>
+  <script>
+    function tentarLogarManual() {
+      const s = document.getElementById("senha-input").value;
+      if (s === "Cate150909") {
+        sessionStorage.setItem("logado_ok", "true");
+        document.getElementById("trava-seguranca").style.display = "none";
+        document.getElementById("corpo-sistema").style.display = "block";
+        if (typeof init === 'function') init();
+      } else {
+        document.getElementById("erro-trava").style.display = "block";
+      }
+    }
+    window.onload = () => {
+      if (sessionStorage.getItem("logado_ok") === "true") {
+        document.getElementById("trava-seguranca").style.display = "none";
+        document.getElementById("corpo-sistema").style.display = "block";
+        if (typeof init === 'function') init();
+      }
+    };
+  </script>
 </body>
 </html>
