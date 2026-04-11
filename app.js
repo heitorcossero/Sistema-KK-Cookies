@@ -1,6 +1,5 @@
 // CONFIGURAÇÕES
 let supabase = null;
-const STORAGE_KEY = "controle_estoque_v2";
 
 const state = {
   itens: [],
