@@ -187,7 +187,7 @@ function renderizar() {
           <span class="saldo ${it.estoqueMinimo > 0 && it.quantidade <= it.estoqueMinimo ? 'alerta-baixo' : ''}">
             ${formatarQtd(it.quantidade)} ${it.unidade}
           </span>
-        </li>`).join("");
+        </li>`).join("") || '<p class="muted-small">Nenhum insumo.</p>';
     }
 
     // 3. Estoque Congelados
@@ -200,11 +200,15 @@ function renderizar() {
       }).join("") : '<p class="muted-small">Freezer vazio.</p>';
     }
 
-    // 4. Clientes
+    // 4. Clientes (Ordem da conversa mais antiga)
     const lCli = document.getElementById("lista-clientes");
     if (lCli) {
-      lCli.innerHTML = state.clientes.sort((a,b) => new Date(b.ultimaConversa || 0) - new Date(a.ultimaConversa || 0)).map(c => `
-        <article class="card-encomenda">
+      lCli.innerHTML = state.clientes.sort((a,b) => new Date(a.ultimaConversa || 0) - new Date(b.ultimaConversa || 0)).map(c => {
+        const pedidosCli = state.encomendas.filter(e => e.clienteId === c.id);
+        const ltv = pedidosCli.reduce((acc, p) => acc + (p.valorTotal || 0), 0);
+        const waLink = c.whatsapp ? `https://wa.me/${c.whatsapp.replace(/\D/g, '')}` : "#";
+        
+        return `<article class="card-encomenda">
           <div class="flex-row" style="justify-content:space-between">
             <h3>${escapeHtml(c.nome)}</h3>
             <div class="btn-row">
@@ -212,21 +216,27 @@ function renderizar() {
               <button class="btn-mini" onclick="excluir('clientes', '${c.id}')">X</button>
             </div>
           </div>
-          <p>WhatsApp: ${escapeHtml(c.whatsapp || "Não informado")}</p>
-          <p class="muted-small">Última conversa: ${formatarData(c.ultimaConversa)}</p>
-        </article>`).join("");
+          <p><strong>Notas:</strong> ${escapeHtml(c.conversa || "Sem observações")}</p>
+          <p><strong>LTV:</strong> ${formatarMoeda(ltv)} (${pedidosCli.length} pedidos)</p>
+          <div class="flex-row" style="margin-top:0.5rem">
+            ${c.whatsapp ? `<a href="${waLink}" target="_blank" class="btn-mini" style="background:#25D366; color:white; text-decoration:none">WhatsApp</a>` : ""}
+            <small class="muted-small">Última: ${formatarData(c.ultimaConversa)}</small>
+          </div>
+          <div class="pedidos-mini" style="margin-top:0.5rem; border-top:1px solid var(--border); padding-top:0.5rem">
+            ${pedidosCli.slice(0,3).map(p => `<small style="display:block">• ${p.titulo || 'Pedido'}: ${formatarMoeda(p.valorTotal)}</small>`).join("")}
+          </div>
+        </article>`;
+      }).join("") || '<p class="muted-small">Nenhum cliente.</p>';
     }
 
-    // 5. Histórico
+    // 5. Histórico (Apenas na aba Estoque agora)
     const lHist = document.getElementById("lista-historico-estoque");
     if (lHist) {
-      const histHtml = state.historico.slice(0, 30).map(h => `
+      lHist.innerHTML = state.historico.slice(0, 30).map(h => `
         <li class="mov">
           <div style="flex:1"><strong>${formatarData(h.quando)}</strong> - ${h.texto}</div>
           <button class="btn-mini" onclick="reverterLancamento('${h.id}')">Desfazer</button>
         </li>`).join("");
-      // Atualiza nos dois lugares (Aba Estoque e Aba Info)
-      document.querySelectorAll("#lista-historico-estoque").forEach(el => el.innerHTML = histHtml);
     }
 
     // 6. Encomendas
@@ -234,15 +244,27 @@ function renderizar() {
     if (lEnc) {
       lEnc.innerHTML = state.encomendas.sort((a,b) => new Date(a.dataEntrega || 0) - new Date(b.dataEntrega || 0)).map(e => {
         const cliente = state.clientes.find(c => c.id === e.clienteId);
+        const itensHtml = (e.produtos || []).map(p => {
+           const rec = state.receitas.find(r => r.id === p.receitaId);
+           const noFreezer = state.congelados[p.receitaId] || 0;
+           return `<div class="muted-small">• ${p.quantidade}un ${rec?.nome || 'Cookie'} 
+                   <span style="color:${noFreezer >= p.quantidade ? 'var(--accent-in)' : 'var(--danger)'}">
+                   (Freezer: ${noFreezer}un)</span></div>`;
+        }).join("");
+
         return `<article class="card-encomenda">
           <div class="flex-row" style="justify-content:space-between">
             <h3>${escapeHtml(e.titulo || "Pedido")} - ${escapeHtml(cliente?.nome || "Cliente")}</h3>
-            <button class="btn-mini" onclick="excluir('encomendas', '${e.id}')">X</button>
+            <div class="btn-row">
+              <button class="btn-mini" onclick="editarEncomenda('${e.id}')">Editar</button>
+              <button class="btn-mini" onclick="excluir('encomendas', '${e.id}')">X</button>
+            </div>
           </div>
+          <div class="pedido-detalhes" style="margin: 0.5rem 0">${itensHtml}</div>
           <p>Entrega: ${formatarData(e.dataEntrega)}</p>
-          <p>Total: ${formatarMoeda(e.valorTotal)}</p>
+          <p>Total: <strong>${formatarMoeda(e.valorTotal)}</strong></p>
         </article>`;
-      }).join("");
+      }).join("") || '<p class="muted-small">Nenhuma encomenda.</p>';
     }
 
     // 7. Editar Receitas
@@ -250,11 +272,13 @@ function renderizar() {
     if (containerRec) {
       containerRec.innerHTML = state.receitas.map(r => {
         const custo = calcularCustoReceita(r);
-        const lucro = r.precoVenda - custo;
+        const custoUnit = custo / (r.rendimento || 1);
+        const lucroUnit = (r.precoVenda / (r.rendimento || 1)) - custoUnit;
         return `<div class="card-receita-edit">
           <h3>${escapeHtml(r.nome)}</h3>
-          <p class="muted-small">Custo: ${formatarMoeda(custo)} | Lucro: ${formatarMoeda(lucro)}</p>
-          <p class="muted-small">Venda: ${formatarMoeda(r.precoVenda)}</p>
+          <p class="muted-small">Custo Unit: ${formatarMoeda(custoUnit)}</p>
+          <p style="color:var(--accent-in); font-weight:bold">Lucro Unit: ${formatarMoeda(lucroUnit)}</p>
+          <p class="muted-small">Rendimento: ${r.rendimento} un | Venda: ${formatarMoeda(r.precoVenda)}</p>
           <div class="btn-row">
             <button class="btn-mini" onclick="editarReceita('${r.id}')">Editar</button>
             <button class="btn-mini" onclick="excluir('receitas', '${r.id}')">X</button>
@@ -266,11 +290,49 @@ function renderizar() {
     const containerEdit = document.getElementById("editar-itens-container");
     if (containerEdit) containerEdit.innerHTML = `<table class="tabela-info"><thead><tr><th>Insumo</th><th>Custo</th><th>Ações</th></tr></thead><tbody>` + state.itens.sort((a,b) => a.nome.localeCompare(b.nome)).map(it => `<tr><td>${it.nome}</td><td>${formatarMoedaLonga(it.custoMedio)}</td><td><button class="btn-mini" onclick="editarInsumo('${it.id}')">Editar</button></td></tr>`).join("") + "</tbody></table>";
 
-    // 8. ABA INFORMAÇÕES
+    // 8. Lista de Compras Consolidada
+    atualizarListaCompras();
+
+    // 9. Aba Info
     atualizarAbaInfo();
 
     atualizarSelects();
   } catch (e) { console.error(e); }
+}
+
+function atualizarListaCompras() {
+  const container = document.getElementById("lista-compras-consolidada");
+  if (!container) return;
+
+  const totalNecessario = {}; // itemId -> { nome, qtd, unidade }
+
+  state.encomendas.forEach(enc => {
+    (enc.produtos || []).forEach(p => {
+      const rec = state.receitas.find(r => r.id === p.receitaId);
+      if (rec) {
+        const proporcao = p.quantidade / (rec.rendimento || 1);
+        (rec.ingredientes || []).forEach(ing => {
+          const item = state.itens.find(i => i.id === ing.itemId);
+          if (item) {
+            if (!totalNecessario[item.id]) totalNecessario[item.id] = { nome: item.nome, qtd: 0, unidade: item.unidade };
+            totalNecessario[item.id].qtd += (ing.quantidade * proporcao);
+          }
+        });
+      }
+    });
+  });
+
+  const html = Object.entries(totalNecessario).map(([id, info]) => {
+    const itemEstoque = state.itens.find(i => i.id === id);
+    const falta = Math.max(0, info.qtd - (itemEstoque?.quantidade || 0));
+    if (falta <= 0) return "";
+    return `<div class="item-compra" style="margin-bottom:0.3rem">
+      • <strong>${info.nome}</strong>: precisa ${formatarQtd(info.qtd)}${info.unidade} 
+      <span style="color:var(--danger)"> (Falta ${formatarQtd(falta)}${info.unidade})</span>
+    </div>`;
+  }).filter(h => h !== "").join("");
+
+  container.innerHTML = html || '<p class="muted-small">Estoque suficiente para todos os pedidos!</p>';
 }
 
 function atualizarAbaInfo() {
@@ -296,18 +358,21 @@ function atualizarAbaInfo() {
   const elMedia = document.getElementById("media-cookies-pedido");
   if (elMedia) elMedia.textContent = totalPedidos > 0 ? `${(totalCookies / totalPedidos).toFixed(1)} un` : "0 un";
 
-  // Desempenho por sabor
+  // Desempenho por sabor (Baseado nas Encomendas agora)
   const sabores = {};
-  state.historico.filter(h => h.tipo === 'producao' && isMesAtual(h.quando)).forEach(h => {
-    const nome = h.texto.replace("Produção: ", "").split("x ")[1];
-    if (nome) {
-      sabores[nome] = (sabores[nome] || 0) + 1;
-    }
+  state.encomendas.forEach(enc => {
+    (enc.produtos || []).forEach(p => {
+      const rec = state.receitas.find(r => r.id === p.receitaId);
+      if (rec) {
+        sabores[rec.nome] = (sabores[rec.nome] || 0) + p.quantidade;
+      }
+    });
   });
+
   const elSabores = document.getElementById("lista-desempenho-sabores");
   if (elSabores) {
     const sortSabores = Object.entries(sabores).sort((a,b) => b[1] - a[1]);
-    elSabores.innerHTML = sortSabores.length ? `<ul class="lista-estoque">${sortSabores.map(([n, q]) => `<li><strong>${n}</strong> <span>${q} produções</span></li>`).join("")}</ul>` : "<p class='muted-small'>Nenhuma produção este mês.</p>";
+    elSabores.innerHTML = sortSabores.length ? `<ul class="lista-estoque">${sortSabores.map(([n, q]) => `<li><strong>${n}</strong> <span>${q} un</span></li>`).join("")}</ul>` : "<p class='muted-small'>Nenhum pedido registrado.</p>";
   }
 }
 
@@ -426,6 +491,32 @@ window.editarReceita = (id) => {
     document.getElementById("btn-salvar-receita").textContent = "Atualizar";
     document.getElementById("btn-cancelar-receita").classList.remove("hidden");
     document.getElementById("tab-editar").click();
+  }
+};
+
+window.editarEncomenda = (id) => {
+  const e = state.encomendas.find(x => x.id === id);
+  if (e) {
+    document.getElementById("enc-cliente-select").value = e.clienteId;
+    document.getElementById("enc-data-entrega").value = e.dataEntrega || "";
+    document.getElementById("enc-titulo").value = e.titulo || "";
+    document.getElementById("enc-valor-total").value = e.valorTotal;
+    
+    const container = document.getElementById("enc-produtos-container");
+    container.innerHTML = "";
+    (e.produtos || []).forEach(p => {
+      const div = document.createElement("div");
+      div.className = "enc-linha-row";
+      div.innerHTML = `<select class="enc-prod-select" required>${state.receitas.map(r => `<option value="${r.id}" ${r.id === p.receitaId ? 'selected' : ''}>${r.nome}</option>`).join("")}</select>
+        <input type="number" class="enc-prod-qtd" step="1" value="${p.quantidade}" required />
+        <button type="button" class="btn-mini" onclick="this.parentElement.remove()">X</button>`;
+      container.appendChild(div);
+    });
+    
+    // Adicionar um ID temporário no formulário para saber que é edição
+    document.getElementById("form-encomenda").dataset.editId = e.id;
+    document.getElementById("tab-encomendas").click();
+    window.scrollTo(0,0);
   }
 };
 
@@ -596,6 +687,7 @@ async function init() {
 
   document.getElementById("form-encomenda").onsubmit = async (e) => {
     e.preventDefault();
+    const editId = e.target.dataset.editId;
     const clienteId = document.getElementById("enc-cliente-select").value;
     const dataEntrega = document.getElementById("enc-data-entrega").value;
     const titulo = document.getElementById("enc-titulo").value;
@@ -607,13 +699,27 @@ async function init() {
     let total = 0;
     prods.forEach(p => {
       const r = state.receitas.find(rec => rec.id === p.receitaId);
-      if (r) total += (r.precoVenda * p.quantidade);
+      if (r) {
+        const precoUnit = r.precoVenda / (r.rendimento || 1);
+        total += (precoUnit * p.quantidade);
+      }
     });
 
-    const novo = { id: uid(), clienteId, dataEntrega, titulo, produtos: prods, valorTotal: total, status: { pago: false, entregue: false }, criado_at: new Date().toISOString() };
-    state.encomendas.push(novo);
-    await salvar('encomendas', novo);
-    e.target.reset(); document.getElementById("enc-produtos-container").innerHTML = "";
+    const dados = { clienteId, dataEntrega, titulo, produtos: prods, valorTotal: total };
+    
+    if (editId) {
+      const enc = state.encomendas.find(x => x.id === editId);
+      Object.assign(enc, dados);
+      await salvar('encomendas', enc);
+      delete e.target.dataset.editId;
+    } else {
+      const novo = { id: uid(), ...dados, status: { pago: false, entregue: false }, criado_at: new Date().toISOString() };
+      state.encomendas.push(novo);
+      await salvar('encomendas', novo);
+    }
+    
+    e.target.reset(); 
+    document.getElementById("enc-produtos-container").innerHTML = "";
     renderizar(); toast("Encomenda salva!");
   };
 
