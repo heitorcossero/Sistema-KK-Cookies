@@ -1,4 +1,4 @@
-const CACHE_NAME = 'kk-cookies-v2';
+const CACHE_NAME = 'kk-cookies-v3';
 const ASSETS = [
   './',
   './index.html',
@@ -6,7 +6,7 @@ const ASSETS = [
   './app.js',
   './app_config.js',
   './manifest.json',
-  './Icone.jpeg'
+  './Icone.png'
 ];
 
 // Instalação e Cache
