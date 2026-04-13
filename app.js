@@ -200,24 +200,115 @@ function renderizar() {
       }).join("") : '<p class="muted-small">Freezer vazio.</p>';
     }
 
-    // 4. Histórico
+    // 4. Clientes
+    const lCli = document.getElementById("lista-clientes");
+    if (lCli) {
+      lCli.innerHTML = state.clientes.sort((a,b) => new Date(b.ultimaConversa || 0) - new Date(a.ultimaConversa || 0)).map(c => `
+        <article class="card-encomenda">
+          <div class="flex-row" style="justify-content:space-between">
+            <h3>${escapeHtml(c.nome)}</h3>
+            <div class="btn-row">
+              <button class="btn-mini" onclick="editarCliente('${c.id}')">Editar</button>
+              <button class="btn-mini" onclick="excluir('clientes', '${c.id}')">X</button>
+            </div>
+          </div>
+          <p>WhatsApp: ${escapeHtml(c.whatsapp || "Não informado")}</p>
+          <p class="muted-small">Última conversa: ${formatarData(c.ultimaConversa)}</p>
+        </article>`).join("");
+    }
+
+    // 5. Histórico
     const lHist = document.getElementById("lista-historico-estoque");
     if (lHist) {
-      lHist.innerHTML = state.historico.slice(0, 30).map(h => `
+      const histHtml = state.historico.slice(0, 30).map(h => `
         <li class="mov">
           <div style="flex:1"><strong>${formatarData(h.quando)}</strong> - ${h.texto}</div>
           <button class="btn-mini" onclick="reverterLancamento('${h.id}')">Desfazer</button>
         </li>`).join("");
+      // Atualiza nos dois lugares (Aba Estoque e Aba Info)
+      document.querySelectorAll("#lista-historico-estoque").forEach(el => el.innerHTML = histHtml);
     }
 
+    // 6. Encomendas
+    const lEnc = document.getElementById("lista-encomendas");
+    if (lEnc) {
+      lEnc.innerHTML = state.encomendas.sort((a,b) => new Date(a.dataEntrega || 0) - new Date(b.dataEntrega || 0)).map(e => {
+        const cliente = state.clientes.find(c => c.id === e.clienteId);
+        return `<article class="card-encomenda">
+          <div class="flex-row" style="justify-content:space-between">
+            <h3>${escapeHtml(e.titulo || "Pedido")} - ${escapeHtml(cliente?.nome || "Cliente")}</h3>
+            <button class="btn-mini" onclick="excluir('encomendas', '${e.id}')">X</button>
+          </div>
+          <p>Entrega: ${formatarData(e.dataEntrega)}</p>
+          <p>Total: ${formatarMoeda(e.valorTotal)}</p>
+        </article>`;
+      }).join("");
+    }
+
+    // 7. Editar Receitas
     const containerRec = document.getElementById("lista-receitas-editar");
-    if (containerRec) containerRec.innerHTML = state.receitas.map(r => `<div class="card-receita-edit"><h3>${escapeHtml(r.nome)}</h3><p class="muted-small">Venda: ${formatarMoeda(r.precoVenda)}</p><div class="btn-row"><button class="btn-mini" onclick="editarReceita('${r.id}')">Editar</button><button class="btn-mini" onclick="excluir('receitas', '${r.id}')">X</button></div></div>`).join("");
+    if (containerRec) {
+      containerRec.innerHTML = state.receitas.map(r => {
+        const custo = calcularCustoReceita(r);
+        const lucro = r.precoVenda - custo;
+        return `<div class="card-receita-edit">
+          <h3>${escapeHtml(r.nome)}</h3>
+          <p class="muted-small">Custo: ${formatarMoeda(custo)} | Lucro: ${formatarMoeda(lucro)}</p>
+          <p class="muted-small">Venda: ${formatarMoeda(r.precoVenda)}</p>
+          <div class="btn-row">
+            <button class="btn-mini" onclick="editarReceita('${r.id}')">Editar</button>
+            <button class="btn-mini" onclick="excluir('receitas', '${r.id}')">X</button>
+          </div>
+        </div>`;
+      }).join("");
+    }
 
     const containerEdit = document.getElementById("editar-itens-container");
-    if (containerEdit) containerEdit.innerHTML = `<table class="tabela-info"><thead><tr><th>Insumo</th><th>Ações</th></tr></thead><tbody>` + state.itens.map(it => `<tr><td>${it.nome}</td><td><button class="btn-mini" onclick="editarInsumo('${it.id}')">Editar</button></td></tr>`).join("") + "</tbody></table>";
+    if (containerEdit) containerEdit.innerHTML = `<table class="tabela-info"><thead><tr><th>Insumo</th><th>Custo</th><th>Ações</th></tr></thead><tbody>` + state.itens.sort((a,b) => a.nome.localeCompare(b.nome)).map(it => `<tr><td>${it.nome}</td><td>${formatarMoedaLonga(it.custoMedio)}</td><td><button class="btn-mini" onclick="editarInsumo('${it.id}')">Editar</button></td></tr>`).join("") + "</tbody></table>";
+
+    // 8. ABA INFORMAÇÕES
+    atualizarAbaInfo();
 
     atualizarSelects();
   } catch (e) { console.error(e); }
+}
+
+function atualizarAbaInfo() {
+  const vEstoque = state.itens.reduce((acc, it) => acc + (it.quantidade * it.custoMedio), 0);
+  const lProducoes = state.historico.reduce((acc, h) => acc + (Number(h.lucro) || 0), 0);
+  const pMarkup = vEstoque * 3.7;
+
+  const elVEstoque = document.getElementById("valor-total");
+  if (elVEstoque) elVEstoque.textContent = formatarMoeda(vEstoque);
+
+  const elLProducoes = document.getElementById("lucro-producoes");
+  if (elLProducoes) elLProducoes.textContent = formatarMoeda(lProducoes);
+
+  const elPMarkup = document.getElementById("lucro-markup-estoque");
+  if (elPMarkup) elPMarkup.textContent = formatarMoeda(pMarkup);
+
+  // Média por pedido
+  let totalCookies = 0;
+  let totalPedidos = state.encomendas.length;
+  state.encomendas.forEach(e => {
+    (e.produtos || []).forEach(p => totalCookies += Number(p.quantidade || 0));
+  });
+  const elMedia = document.getElementById("media-cookies-pedido");
+  if (elMedia) elMedia.textContent = totalPedidos > 0 ? `${(totalCookies / totalPedidos).toFixed(1)} un` : "0 un";
+
+  // Desempenho por sabor
+  const sabores = {};
+  state.historico.filter(h => h.tipo === 'producao' && isMesAtual(h.quando)).forEach(h => {
+    const nome = h.texto.replace("Produção: ", "").split("x ")[1];
+    if (nome) {
+      sabores[nome] = (sabores[nome] || 0) + 1;
+    }
+  });
+  const elSabores = document.getElementById("lista-desempenho-sabores");
+  if (elSabores) {
+    const sortSabores = Object.entries(sabores).sort((a,b) => b[1] - a[1]);
+    elSabores.innerHTML = sortSabores.length ? `<ul class="lista-estoque">${sortSabores.map(([n, q]) => `<li><strong>${n}</strong> <span>${q} produções</span></li>`).join("")}</ul>` : "<p class='muted-small'>Nenhuma produção este mês.</p>";
+  }
 }
 
 function atualizarSelects() {
@@ -225,7 +316,10 @@ function atualizarSelects() {
   document.querySelectorAll("#entrada-nome, #saida-manual-id, .ing-select").forEach(s => { const v = s.value; s.innerHTML = optItens; s.value = v; });
   
   const optRec = '<option value="">-- Selecione --</option>' + state.receitas.sort((a,b) => (a.nome || "").localeCompare(b.nome || "")).map(r => `<option value="${r.id}">${r.nome}</option>`).join("");
-  document.querySelectorAll("#produzir-receita-id, #congelado-receita-id").forEach(s => { const v = s.value; s.innerHTML = optRec; s.value = v; });
+  document.querySelectorAll("#produzir-receita-id, #congelado-receita-id, .enc-prod-select").forEach(s => { const v = s.value; s.innerHTML = optRec; s.value = v; });
+
+  const optCli = '<option value="">-- Selecione --</option>' + state.clientes.sort((a,b) => (a.nome || "").localeCompare(b.nome || "")).map(c => `<option value="${c.id}">${c.nome}</option>`).join("");
+  document.querySelectorAll("#enc-cliente-select").forEach(s => { const v = s.value; s.innerHTML = optCli; s.value = v; });
 }
 
 function calcularCustoReceita(r) { 
@@ -294,6 +388,7 @@ window.editarInsumo = (id) => {
     document.getElementById("novo-item-minimo").value = item.estoqueMinimo;
     document.getElementById("btn-salvar-insumo").textContent = "Atualizar";
     document.getElementById("btn-cancelar-insumo").classList.remove("hidden");
+    document.getElementById("tab-editar").click();
   }
 };
 
@@ -307,6 +402,7 @@ window.editarCliente = (id) => {
     document.getElementById("cliente-ultima-conversa").value = c.ultimaConversa ? c.ultimaConversa.split('T')[0] : "";
     document.getElementById("btn-salvar-cliente").textContent = "Atualizar";
     document.getElementById("btn-cancelar-cliente").classList.remove("hidden");
+    document.getElementById("tab-clientes").click();
   }
 };
 
@@ -329,6 +425,7 @@ window.editarReceita = (id) => {
     });
     document.getElementById("btn-salvar-receita").textContent = "Atualizar";
     document.getElementById("btn-cancelar-receita").classList.remove("hidden");
+    document.getElementById("tab-editar").click();
   }
 };
 
@@ -495,6 +592,37 @@ async function init() {
     document.getElementById("btn-salvar-receita").textContent = "Salvar Receita"; 
     document.getElementById("btn-cancelar-receita").classList.add("hidden"); 
     renderizar(); toast("Receita salva!");
+  };
+
+  document.getElementById("form-encomenda").onsubmit = async (e) => {
+    e.preventDefault();
+    const clienteId = document.getElementById("enc-cliente-select").value;
+    const dataEntrega = document.getElementById("enc-data-entrega").value;
+    const titulo = document.getElementById("enc-titulo").value;
+    const prods = [];
+    document.querySelectorAll("#enc-produtos-container .enc-linha-row").forEach(row => {
+      prods.push({ receitaId: row.querySelector(".enc-prod-select").value, quantidade: Number(row.querySelector(".enc-prod-qtd").value) });
+    });
+    
+    let total = 0;
+    prods.forEach(p => {
+      const r = state.receitas.find(rec => rec.id === p.receitaId);
+      if (r) total += (r.precoVenda * p.quantidade);
+    });
+
+    const novo = { id: uid(), clienteId, dataEntrega, titulo, produtos: prods, valorTotal: total, status: { pago: false, entregue: false }, criado_at: new Date().toISOString() };
+    state.encomendas.push(novo);
+    await salvar('encomendas', novo);
+    e.target.reset(); document.getElementById("enc-produtos-container").innerHTML = "";
+    renderizar(); toast("Encomenda salva!");
+  };
+
+  document.getElementById("btn-add-produto-enc").onclick = () => {
+    const div = document.createElement("div"); div.className = "enc-linha-row";
+    div.innerHTML = `<select class="enc-prod-select" required>${state.receitas.map(r => `<option value="${r.id}">${r.nome}</option>`).join("")}</select>
+      <input type="number" class="enc-prod-qtd" step="1" placeholder="Qtd" required />
+      <button type="button" class="btn-mini" onclick="this.parentElement.remove()">X</button>`;
+    document.getElementById("enc-produtos-container").appendChild(div);
   };
 
   document.getElementById("btn-add-ingrediente").onclick = () => {
