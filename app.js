@@ -139,18 +139,20 @@ async function salvar(tabela = null, dados = null) {
         const obj = {...d};
         if (obj.custoMedio !== undefined) { obj.custo_medio = Number(obj.custoMedio); delete obj.custoMedio; }
         if (obj.estoqueMinimo !== undefined) { obj.estoque_minimo = Number(obj.estoqueMinimo); delete obj.estoqueMinimo; }
-        if (obj.ultimaConversa !== undefined) { obj.ultima_conversa = obj.ultimaConversa; delete obj.ultimaConversa; }
-        if (obj.clienteId !== undefined) { obj.cliente_id = obj.clienteId; delete obj.clienteId; }
+        if (obj.ultimaConversa !== undefined) { obj.ultima_conversa = obj.ultimaConversa || null; delete obj.ultimaConversa; }
+        if (obj.clienteId !== undefined) { obj.cliente_id = obj.clienteId || null; delete obj.clienteId; }
         if (obj.valorTotal !== undefined) { obj.valor_total = Number(obj.valorTotal); delete obj.valorTotal; }
-        if (obj.dataEntrega !== undefined) { obj.data_entrega = obj.dataEntrega; delete obj.dataEntrega; }
-        if (obj.receitaId !== undefined) { obj.receita_id = obj.receitaId; delete obj.receitaId; }
+        if (obj.dataEntrega !== undefined) { obj.data_entrega = obj.dataEntrega || null; delete obj.dataEntrega; }
+        if (obj.receitaId !== undefined) { obj.receita_id = obj.receitaId || null; delete obj.receitaId; }
         if (obj.precoVenda !== undefined) { obj.preco_venda = Number(obj.precoVenda); delete obj.precoVenda; }
-        if (obj.itemId !== undefined) { obj.item_id = obj.itemId; delete obj.itemId; }
+        if (obj.itemId !== undefined) { obj.item_id = obj.itemId || null; delete obj.itemId; }
         if (obj.detalhesIngredientes !== undefined) { obj.detalhes_ingredientes = obj.detalhesIngredientes; delete obj.detalhesIngredientes; }
+        if (obj.criado_at !== undefined) { obj.created_at = obj.criado_at; delete obj.criado_at; }
         return obj;
       });
-      await s.from(tabela).upsert(dbPayload);
-    } catch (err) { toast("Erro sincronia.", true); }
+      const { error } = await s.from(tabela).upsert(dbPayload);
+      if (error) console.error("Erro sincronia Supabase:", error);
+    } catch (err) { console.error("Erro conexão Supabase:", err); toast("Erro sincronia.", true); }
   }
 }
 
