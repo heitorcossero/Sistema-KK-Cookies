@@ -217,20 +217,24 @@ function renderizar() {
             </div>
           </div>
           <p><strong>Notas:</strong> ${escapeHtml(c.conversa || "Sem observações")}</p>
-          <p><strong>LTV:</strong> ${formatarMoeda(ltv)} (${pedidosCli.length} pedidos)</p>
+          <p><strong>LTV:</strong> ${formatarMoeda(ltv)}</p>
           <div class="flex-row" style="margin-top:0.5rem">
             ${c.whatsapp ? `<a href="${waLink}" target="_blank" class="btn-mini" style="background:#25D366; color:white; text-decoration:none">WhatsApp</a>` : ""}
             <small class="muted-small">Última: ${formatarData(c.ultimaConversa)}</small>
           </div>
-          <div class="pedidos-mini" style="margin-top:0.5rem; border-top:1px solid var(--border); padding-top:0.5rem">
-            ${pedidosCli.map(p => {
-              const prods = (p.produtos || []).map(pr => {
-                const r = state.receitas.find(rec => rec.id === pr.receitaId);
-                return `${pr.quantidade}x ${r?.nome || 'Cookie'}`;
-              }).join(", ");
-              return `<small style="display:block">• ${p.titulo || 'Pedido'} (${prods}): ${formatarMoeda(p.valorTotal)}</small>`;
-            }).join("")}
-          </div>
+          
+          <details style="margin-top:0.8rem; cursor:pointer">
+            <summary class="muted-small" style="font-weight:bold; color:var(--accent-in)">📦 Ver Histórico de Pedidos (${pedidosCli.length})</summary>
+            <div class="pedidos-mini" style="margin-top:0.5rem; border-top:1px solid var(--border); padding-top:0.5rem">
+              ${pedidosCli.map(p => {
+                const prods = (p.produtos || []).map(pr => {
+                  const r = state.receitas.find(rec => rec.id === pr.receitaId);
+                  return `${pr.quantidade}x ${r?.nome || 'Cookie'}`;
+                }).join(", ");
+                return `<small style="display:block; margin-bottom:0.3rem">• <strong>${formatarData(p.dataEntrega)}</strong>: ${prods} (${formatarMoeda(p.valorTotal)})</small>`;
+              }).join("") || '<small class="muted-small">Nenhum pedido realizado.</small>'}
+            </div>
+          </details>
         </article>`;
       }).join("") || '<p class="muted-small">Nenhum cliente.</p>';
     }
@@ -245,17 +249,23 @@ function renderizar() {
         </li>`).join("");
     }
 
-    // 6. Encomendas
+    // 6. Encomendas (Com lógica de Freezer e Produção)
     const lEnc = document.getElementById("lista-encomendas");
     if (lEnc) {
       lEnc.innerHTML = state.encomendas.sort((a,b) => new Date(a.dataEntrega || 0) - new Date(b.dataEntrega || 0)).map(e => {
         const cliente = state.clientes.find(c => c.id === e.clienteId);
+        
         const itensHtml = (e.produtos || []).map(p => {
            const rec = state.receitas.find(r => r.id === p.receitaId);
            const noFreezer = state.congelados[p.receitaId] || 0;
-           return `<div class="muted-small">• ${p.quantidade}un ${rec?.nome || 'Cookie'} 
-                   <span style="color:${noFreezer >= p.quantidade ? 'var(--accent-in)' : 'var(--danger)'}">
-                   (Freezer: ${noFreezer}un)</span></div>`;
+           const falta = Math.max(0, p.quantidade - noFreezer);
+           
+           if (falta === 0) {
+             return `<div class="muted-small" style="color:var(--accent-in)">• ${p.quantidade}un ${rec?.nome || 'Cookie'} <strong>(Pronto no Freezer)</strong></div>`;
+           } else {
+             return `<div class="muted-small">• ${p.quantidade}un ${rec?.nome || 'Cookie'} 
+                     <span style="color:var(--danger)"> (Produzir: ${falta}un | Freezer: ${noFreezer}un)</span></div>`;
+           }
         }).join("");
 
         return `<article class="card-encomenda">
@@ -311,7 +321,7 @@ function atualizarListaCompras() {
   const container = document.getElementById("lista-compras-consolidada");
   if (!container) return;
 
-  const totalPorSabor = {}; // receitaId -> totalQtd
+  const totalPorSabor = {}; // receitaId -> totalQtdEncomendas
   state.encomendas.forEach(enc => {
     (enc.produtos || []).forEach(p => {
       totalPorSabor[p.receitaId] = (totalPorSabor[p.receitaId] || 0) + p.quantidade;
@@ -319,17 +329,24 @@ function atualizarListaCompras() {
   });
 
   const totalNecessario = {}; // itemId -> { nome, qtd, unidade }
+  
   Object.entries(totalPorSabor).forEach(([recId, totalQtd]) => {
     const rec = state.receitas.find(r => r.id === recId);
     if (rec) {
-      const batches = Math.ceil(totalQtd / (rec.rendimento || 1));
-      (rec.ingredientes || []).forEach(ing => {
-        const item = state.itens.find(i => i.id === ing.itemId);
-        if (item) {
-          if (!totalNecessario[item.id]) totalNecessario[item.id] = { nome: item.nome, qtd: 0, unidade: item.unidade };
-          totalNecessario[item.id].qtd += (ing.quantidade * batches);
-        }
-      });
+      // Subtrair o que já tem no freezer antes de calcular ingredientes
+      const noFreezer = state.congelados[recId] || 0;
+      const realNecessario = Math.max(0, totalQtd - noFreezer);
+      
+      if (realNecessario > 0) {
+        const batches = Math.ceil(realNecessario / (rec.rendimento || 1));
+        (rec.ingredientes || []).forEach(ing => {
+          const item = state.itens.find(i => i.id === ing.itemId);
+          if (item) {
+            if (!totalNecessario[item.id]) totalNecessario[item.id] = { nome: item.nome, qtd: 0, unidade: item.unidade };
+            totalNecessario[item.id].qtd += (ing.quantidade * batches);
+          }
+        });
+      }
     }
   });
 
@@ -343,7 +360,7 @@ function atualizarListaCompras() {
     </div>`;
   }).filter(h => h !== "").join("");
 
-  container.innerHTML = html || '<p class="muted-small">Estoque suficiente para todos os pedidos!</p>';
+  container.innerHTML = html || '<p class="muted-small">Estoque e Freezer suficientes para todos os pedidos!</p>';
 }
 
 function atualizarAbaInfo() {
