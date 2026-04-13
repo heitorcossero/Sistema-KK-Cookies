@@ -5,7 +5,8 @@ const ASSETS = [
   './style.css',
   './app.js',
   './app_config.js',
-  './manifest.json'
+  './manifest.json',
+  './icone.jpeg'
 ];
 
 // Instalação e Cache
