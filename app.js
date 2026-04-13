@@ -321,7 +321,10 @@ function renderizar() {
         state.itens.sort((a,b) => a.nome.localeCompare(b.nome)).map(it => `<tr>
           <td>${it.nome}</td>
           <td><input type="number" step="any" value="${it.custoMedio}" style="width:80px; padding:2px; border:1px solid var(--border); border-radius:4px" onchange="window.atualizarCustoInsumo('${it.id}', this.value)" /></td>
-          <td><button class="btn-mini" onclick="editarInsumo('${it.id}')">Editar</button></td>
+          <td class="btn-row">
+            <button class="btn-mini" onclick="editarInsumo('${it.id}')">Editar</button>
+            <button class="btn-mini btn-danger" onclick="excluir('itens', '${it.id}')">X</button>
+          </td>
         </tr>`).join("") + "</tbody></table>";
     }
 
