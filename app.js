@@ -223,13 +223,19 @@ function renderizar() {
             <small class="muted-small">Última: ${formatarData(c.ultimaConversa)}</small>
           </div>
           <div class="pedidos-mini" style="margin-top:0.5rem; border-top:1px solid var(--border); padding-top:0.5rem">
-            ${pedidosCli.slice(0,3).map(p => `<small style="display:block">• ${p.titulo || 'Pedido'}: ${formatarMoeda(p.valorTotal)}</small>`).join("")}
+            ${pedidosCli.map(p => {
+              const prods = (p.produtos || []).map(pr => {
+                const r = state.receitas.find(rec => rec.id === pr.receitaId);
+                return `${pr.quantidade}x ${r?.nome || 'Cookie'}`;
+              }).join(", ");
+              return `<small style="display:block">• ${p.titulo || 'Pedido'} (${prods}): ${formatarMoeda(p.valorTotal)}</small>`;
+            }).join("")}
           </div>
         </article>`;
       }).join("") || '<p class="muted-small">Nenhum cliente.</p>';
     }
 
-    // 5. Histórico (Apenas na aba Estoque agora)
+    // 5. Histórico
     const lHist = document.getElementById("lista-historico-estoque");
     if (lHist) {
       lHist.innerHTML = state.historico.slice(0, 30).map(h => `
@@ -271,13 +277,14 @@ function renderizar() {
     const containerRec = document.getElementById("lista-receitas-editar");
     if (containerRec) {
       containerRec.innerHTML = state.receitas.map(r => {
-        const custo = calcularCustoReceita(r);
-        const custoUnit = custo / (r.rendimento || 1);
+        const custoTotal = calcularCustoReceita(r);
+        const custoUnit = custoTotal / (r.rendimento || 1);
+        const lucroTotal = r.precoVenda - custoTotal;
         const lucroUnit = (r.precoVenda / (r.rendimento || 1)) - custoUnit;
         return `<div class="card-receita-edit">
           <h3>${escapeHtml(r.nome)}</h3>
-          <p class="muted-small">Custo Unit: ${formatarMoeda(custoUnit)}</p>
-          <p style="color:var(--accent-in); font-weight:bold">Lucro Unit: ${formatarMoeda(lucroUnit)}</p>
+          <p class="muted-small">Custo Total: ${formatarMoeda(custoTotal)} | <span style="color:var(--accent-in); font-weight:bold">Lucro Total: ${formatarMoeda(lucroTotal)}</span></p>
+          <p class="muted-small">Custo Unit: ${formatarMoeda(custoUnit)} | <span style="color:var(--accent-in); font-weight:bold">Lucro Unit: ${formatarMoeda(lucroUnit)}</span></p>
           <p class="muted-small">Rendimento: ${r.rendimento} un | Venda: ${formatarMoeda(r.precoVenda)}</p>
           <div class="btn-row">
             <button class="btn-mini" onclick="editarReceita('${r.id}')">Editar</button>
@@ -290,7 +297,7 @@ function renderizar() {
     const containerEdit = document.getElementById("editar-itens-container");
     if (containerEdit) containerEdit.innerHTML = `<table class="tabela-info"><thead><tr><th>Insumo</th><th>Custo</th><th>Ações</th></tr></thead><tbody>` + state.itens.sort((a,b) => a.nome.localeCompare(b.nome)).map(it => `<tr><td>${it.nome}</td><td>${formatarMoedaLonga(it.custoMedio)}</td><td><button class="btn-mini" onclick="editarInsumo('${it.id}')">Editar</button></td></tr>`).join("") + "</tbody></table>";
 
-    // 8. Lista de Compras Consolidada
+    // 8. Lista de Compras Consolidada (Por Receita Inteira)
     atualizarListaCompras();
 
     // 9. Aba Info
@@ -304,22 +311,26 @@ function atualizarListaCompras() {
   const container = document.getElementById("lista-compras-consolidada");
   if (!container) return;
 
-  const totalNecessario = {}; // itemId -> { nome, qtd, unidade }
-
+  const totalPorSabor = {}; // receitaId -> totalQtd
   state.encomendas.forEach(enc => {
     (enc.produtos || []).forEach(p => {
-      const rec = state.receitas.find(r => r.id === p.receitaId);
-      if (rec) {
-        const proporcao = p.quantidade / (rec.rendimento || 1);
-        (rec.ingredientes || []).forEach(ing => {
-          const item = state.itens.find(i => i.id === ing.itemId);
-          if (item) {
-            if (!totalNecessario[item.id]) totalNecessario[item.id] = { nome: item.nome, qtd: 0, unidade: item.unidade };
-            totalNecessario[item.id].qtd += (ing.quantidade * proporcao);
-          }
-        });
-      }
+      totalPorSabor[p.receitaId] = (totalPorSabor[p.receitaId] || 0) + p.quantidade;
     });
+  });
+
+  const totalNecessario = {}; // itemId -> { nome, qtd, unidade }
+  Object.entries(totalPorSabor).forEach(([recId, totalQtd]) => {
+    const rec = state.receitas.find(r => r.id === recId);
+    if (rec) {
+      const batches = Math.ceil(totalQtd / (rec.rendimento || 1));
+      (rec.ingredientes || []).forEach(ing => {
+        const item = state.itens.find(i => i.id === ing.itemId);
+        if (item) {
+          if (!totalNecessario[item.id]) totalNecessario[item.id] = { nome: item.nome, qtd: 0, unidade: item.unidade };
+          totalNecessario[item.id].qtd += (ing.quantidade * batches);
+        }
+      });
+    }
   });
 
   const html = Object.entries(totalNecessario).map(([id, info]) => {
@@ -336,7 +347,17 @@ function atualizarListaCompras() {
 }
 
 function atualizarAbaInfo() {
-  const vEstoque = state.itens.reduce((acc, it) => acc + (it.quantidade * it.custoMedio), 0);
+  let vEstoque = state.itens.reduce((acc, it) => acc + (it.quantidade * it.custoMedio), 0);
+  
+  // Adicionar valor dos cookies no freezer (baseado no custo de produção)
+  Object.entries(state.congelados).forEach(([recId, qtd]) => {
+    const r = state.receitas.find(rec => rec.id === recId);
+    if (r && qtd > 0) {
+      const custoUnit = calcularCustoReceita(r) / (r.rendimento || 1);
+      vEstoque += (custoUnit * qtd);
+    }
+  });
+
   const lProducoes = state.historico.reduce((acc, h) => acc + (Number(h.lucro) || 0), 0);
   const pMarkup = vEstoque * 3.7;
 
