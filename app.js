@@ -167,6 +167,15 @@ function renderizar() {
       subtitle.style.color = s ? "var(--accent-in)" : "inherit";
     }
 
+    // 1. Alertas
+    const boxAlertas = document.getElementById("alertas-estoque");
+    if (boxAlertas) {
+      const baixos = state.itens.filter(i => i.estoqueMinimo > 0 && i.quantidade <= i.estoqueMinimo);
+      boxAlertas.classList.toggle("hidden", baixos.length === 0);
+      boxAlertas.innerHTML = baixos.length ? `<h3>⚠️ Insumos em nível crítico</h3><ul>${baixos.map(i => `<li>${i.nome}: ${formatarQtd(i.quantidade)} ${i.unidade} (Mínimo: ${i.estoqueMinimo})</li>`).join("")}</ul>` : "";
+    }
+
+    // 2. Estoque de Insumos
     const listaEstoque = document.getElementById("lista-estoque");
     if (listaEstoque) {
       listaEstoque.innerHTML = state.itens.sort((a,b) => (a.nome || "").localeCompare(b.nome || "")).map(it => `
@@ -178,6 +187,26 @@ function renderizar() {
           <span class="saldo ${it.estoqueMinimo > 0 && it.quantidade <= it.estoqueMinimo ? 'alerta-baixo' : ''}">
             ${formatarQtd(it.quantidade)} ${it.unidade}
           </span>
+        </li>`).join("");
+    }
+
+    // 3. Estoque Congelados
+    const listaCong = document.getElementById("lista-congelados");
+    if (listaCong) {
+      const itensCong = Object.entries(state.congelados).filter(([id, qtd]) => qtd > 0);
+      listaCong.innerHTML = itensCong.length ? itensCong.map(([recId, qtd]) => {
+        const receita = state.receitas.find(r => r.id === recId);
+        return `<li class="item-estoque"><div><strong>${escapeHtml(receita?.nome || 'Cookie')}</strong></div><span class="saldo">${qtd} un</span></li>`;
+      }).join("") : '<p class="muted-small">Freezer vazio.</p>';
+    }
+
+    // 4. Histórico
+    const lHist = document.getElementById("lista-historico-estoque");
+    if (lHist) {
+      lHist.innerHTML = state.historico.slice(0, 30).map(h => `
+        <li class="mov">
+          <div style="flex:1"><strong>${formatarData(h.quando)}</strong> - ${h.texto}</div>
+          <button class="btn-mini" onclick="reverterLancamento('${h.id}')">Desfazer</button>
         </li>`).join("");
     }
 
@@ -194,7 +223,58 @@ function renderizar() {
 function atualizarSelects() {
   const optItens = '<option value="">-- Selecione --</option>' + state.itens.sort((a,b) => (a.nome || "").localeCompare(b.nome || "")).map(i => `<option value="${i.id}">${i.nome}</option>`).join("");
   document.querySelectorAll("#entrada-nome, #saida-manual-id, .ing-select").forEach(s => { const v = s.value; s.innerHTML = optItens; s.value = v; });
+  
+  const optRec = '<option value="">-- Selecione --</option>' + state.receitas.sort((a,b) => (a.nome || "").localeCompare(b.nome || "")).map(r => `<option value="${r.id}">${r.nome}</option>`).join("");
+  document.querySelectorAll("#produzir-receita-id, #congelado-receita-id").forEach(s => { const v = s.value; s.innerHTML = optRec; s.value = v; });
 }
+
+function calcularCustoReceita(r) { 
+  return (r.ingredientes || []).reduce((acc, ing) => { 
+    const item = state.itens.find(i => i.id === ing.itemId); 
+    return acc + (Number(ing.quantidade) * (item?.custoMedio || 0)); 
+  }, 0); 
+}
+
+window.reverterLancamento = async (id) => {
+  if (!confirm("Desfazer este lançamento?")) return;
+  const h = state.historico.find(x => x.id === id);
+  if (!h) return;
+  
+  const s = initSupabase();
+  try {
+    if (h.tipo === 'compra') {
+      const it = state.itens.find(i => i.id === h.item_id);
+      if (it) {
+        it.quantidade -= Number(h.quantidade || 0);
+        await salvar('itens', it);
+      }
+    } else if (h.tipo === 'saida') {
+      const it = state.itens.find(i => i.id === h.item_id);
+      if (it) {
+        it.quantidade += Number(h.quantidade || 0);
+        await salvar('itens', it);
+      }
+    } else if (h.tipo === 'producao') {
+      const dets = h.detalhes_ingredientes || h.detalhesIngredientes || [];
+      for (const d of dets) {
+        const item = state.itens.find(i => i.id === d.itemId || i.id === d.item_id);
+        if (item) {
+          item.quantidade += Number(d.quantidade || 0);
+          await salvar('itens', item);
+        }
+      }
+    } else if (h.tipo === 'congelado') {
+      const rId = h.receita_id || h.receitaId;
+      state.congelados[rId] = (state.congelados[rId] || 0) - Number(h.quantidade || 0);
+      await salvar('congelados', { receita_id: rId, quantidade: state.congelados[rId] });
+    }
+    
+    state.historico = state.historico.filter(x => x.id !== id);
+    if (s) await s.from('historico').delete().eq('id', id);
+    
+    await salvar(); renderizar(); toast("Lançamento revertido!");
+  } catch (err) { console.error(err); toast("Erro ao reverter.", true); }
+};
 
 window.excluir = async (tabela, id) => {
   if (!confirm("Excluir?")) return;
@@ -214,6 +294,41 @@ window.editarInsumo = (id) => {
     document.getElementById("novo-item-minimo").value = item.estoqueMinimo;
     document.getElementById("btn-salvar-insumo").textContent = "Atualizar";
     document.getElementById("btn-cancelar-insumo").classList.remove("hidden");
+  }
+};
+
+window.editarCliente = (id) => {
+  const c = state.clientes.find(x => x.id === id);
+  if (c) {
+    document.getElementById("cliente-id-edit").value = c.id;
+    document.getElementById("cliente-nome").value = c.nome;
+    document.getElementById("cliente-whatsapp").value = c.whatsapp || "";
+    document.getElementById("cliente-conversa").value = c.conversa || "";
+    document.getElementById("cliente-ultima-conversa").value = c.ultimaConversa ? c.ultimaConversa.split('T')[0] : "";
+    document.getElementById("btn-salvar-cliente").textContent = "Atualizar";
+    document.getElementById("btn-cancelar-cliente").classList.remove("hidden");
+  }
+};
+
+window.editarReceita = (id) => {
+  const r = state.receitas.find(x => x.id === id);
+  if (r) {
+    document.getElementById("receita-id-edit").value = r.id;
+    document.getElementById("receita-nome").value = r.nome;
+    document.getElementById("receita-rendimento").value = r.rendimento || 1;
+    document.getElementById("receita-preco-venda").value = r.precoVenda;
+    const container = document.getElementById("ingredientes-container");
+    container.innerHTML = "";
+    (r.ingredientes || []).forEach(ing => {
+      const div = document.createElement("div");
+      div.className = "enc-linha-row";
+      div.innerHTML = `<select class="ing-select" required>${state.itens.map(i => `<option value="${i.id}" ${i.id === ing.itemId ? 'selected' : ''}>${i.nome}</option>`).join("")}</select>
+        <input type="number" class="ing-qtd" step="any" value="${ing.quantidade}" required />
+        <button type="button" class="btn-mini" onclick="this.parentElement.remove()">X</button>`;
+      container.appendChild(div);
+    });
+    document.getElementById("btn-salvar-receita").textContent = "Atualizar";
+    document.getElementById("btn-cancelar-receita").classList.remove("hidden");
   }
 };
 
@@ -245,7 +360,7 @@ async function init() {
     };
   });
 
-  // 4. Ativar Formulários (Onde estava o erro!)
+  // 4. Ativar Formulários
   document.getElementById("form-novo-item").onsubmit = async (e) => {
     e.preventDefault();
     const idEdit = document.getElementById("insumo-id-edit").value;
@@ -260,7 +375,10 @@ async function init() {
       state.itens.push(novo);
       await salvar('itens', novo);
     }
-    e.target.reset(); document.getElementById("insumo-id-edit").value = ""; renderizar(); toast("Salvo!");
+    e.target.reset(); document.getElementById("insumo-id-edit").value = ""; 
+    document.getElementById("btn-salvar-insumo").textContent = "Criar Insumo";
+    document.getElementById("btn-cancelar-insumo").classList.add("hidden");
+    renderizar(); toast("Salvo!");
   };
 
   document.getElementById("form-entrada").onsubmit = async (e) => {
@@ -269,15 +387,114 @@ async function init() {
     const qtd = Number(document.getElementById("entrada-qtd").value);
     const preco = Number(document.getElementById("entrada-preco").value);
     const item = state.itens.find(i => i.id === id);
-    if (item) {
+    if (item && qtd > 0) {
       item.custoMedio = (item.quantidade * item.custoMedio + preco) / (item.quantidade + qtd);
       item.quantidade += qtd;
-      const h = { id: uid(), tipo: 'compra', item_id: id, quantidade: qtd, texto: `Compra: ${item.nome}`, quando: new Date().toISOString() };
+      const h = { id: uid(), tipo: 'compra', item_id: id, quantidade: qtd, texto: `Compra: ${qtd}${item.unidade} ${item.nome}`, quando: new Date().toISOString() };
       state.historico.unshift(h);
       await salvar('itens', item);
       await salvar('historico', h);
       e.target.reset(); renderizar(); toast("Estoque atualizado!");
     }
+  };
+
+  document.getElementById("form-saida-manual").onsubmit = async (e) => {
+    e.preventDefault();
+    const id = document.getElementById("saida-manual-id").value;
+    const qtd = Number(document.getElementById("saida-manual-qtd").value);
+    const item = state.itens.find(i => i.id === id);
+    if (item && item.quantidade >= qtd && qtd > 0) {
+      item.quantidade -= qtd;
+      const h = { id: uid(), tipo: 'saida', item_id: id, quantidade: qtd, texto: `Saída Manual: ${qtd}${item.unidade} ${item.nome}`, quando: new Date().toISOString() };
+      state.historico.unshift(h);
+      await salvar('itens', item);
+      await salvar('historico', h);
+      e.target.reset(); renderizar(); toast("Estoque reduzido.");
+    } else { alert("Saldo insuficiente!"); }
+  };
+
+  document.getElementById("form-congelados").onsubmit = async (e) => {
+    e.preventDefault();
+    const recId = document.getElementById("congelado-receita-id").value;
+    const qtd = Number(document.getElementById("congelado-qtd").value);
+    const tipo = e.submitter.id === "btn-add-congelado" ? 1 : -1;
+    if (recId && qtd > 0) {
+      state.congelados[recId] = (state.congelados[recId] || 0) + (qtd * tipo);
+      const r = state.receitas.find(x => x.id === recId);
+      const h = { id: uid(), tipo: 'congelado', receita_id: recId, quantidade: qtd * tipo, texto: `${tipo > 0 ? 'Entrada' : 'Saída'} Freezer: ${qtd}un ${r?.nome || 'Cookie'}`, quando: new Date().toISOString() };
+      state.historico.unshift(h);
+      await salvar('congelados', { receita_id: recId, quantidade: state.congelados[recId] });
+      await salvar('historico', h);
+      e.target.reset(); renderizar(); toast("Freezer atualizado!");
+    }
+  };
+
+  document.getElementById("form-produzir").onsubmit = async (e) => {
+    e.preventDefault();
+    const r = state.receitas.find(x => x.id === document.getElementById("produzir-receita-id").value);
+    const mult = Number(document.getElementById("produzir-qtd").value);
+    if (r && mult > 0) {
+      const custoT = calcularCustoReceita(r) * mult;
+      const lucroG = (r.precoVenda * mult) - custoT;
+      const dets = [];
+      for (const ing of (r.ingredientes || [])) {
+        const item = state.itens.find(i => i.id === ing.itemId);
+        if (item) { 
+          const q = ing.quantidade * mult; 
+          item.quantidade -= q; 
+          dets.push({ itemId: ing.itemId, quantidade: q });
+          await salvar('itens', item);
+        }
+      }
+      const h = { id: uid(), tipo: 'producao', lucro: lucroG, detalhes_ingredientes: dets, texto: `Produção: ${mult}x ${r.nome}`, quando: new Date().toISOString() };
+      state.historico.unshift(h);
+      await salvar('historico', h);
+      e.target.reset(); renderizar(); toast("Estoque baixado!");
+    }
+  };
+
+  document.getElementById("form-cliente").onsubmit = async (e) => {
+    e.preventDefault();
+    const idEdit = document.getElementById("cliente-id-edit").value;
+    const dConv = document.getElementById("cliente-ultima-conversa").value;
+    const dados = { nome: document.getElementById("cliente-nome").value, whatsapp: document.getElementById("cliente-whatsapp").value, conversa: document.getElementById("cliente-conversa").value, ultimaConversa: dConv ? new Date(dConv).toISOString() : new Date().toISOString() };
+    if (idEdit) { 
+      const c = state.clientes.find(x => x.id === idEdit);
+      Object.assign(c, dados);
+      await salvar('clientes', c);
+    } else { 
+      const novo = { id: uid(), ...dados };
+      state.clientes.push(novo); 
+      await salvar('clientes', novo);
+    }
+    e.target.reset(); document.getElementById("cliente-id-edit").value = ""; 
+    document.getElementById("btn-salvar-cliente").textContent = "Cadastrar"; 
+    document.getElementById("btn-cancelar-cliente").classList.add("hidden"); 
+    renderizar(); toast("Cliente salvo!");
+  };
+
+  document.getElementById("form-nova-receita").onsubmit = async (e) => {
+    e.preventDefault();
+    const idEdit = document.getElementById("receita-id-edit").value;
+    const ings = [];
+    document.querySelectorAll("#ingredientes-container .enc-linha-row").forEach(row => { 
+      ings.push({ itemId: row.querySelector(".ing-select").value, quantidade: Number(row.querySelector(".ing-qtd").value) }); 
+    });
+    const dados = { nome: document.getElementById("receita-nome").value, rendimento: Number(document.getElementById("receita-rendimento").value) || 1, precoVenda: Number(document.getElementById("receita-preco-venda").value) || 0, ingredientes: ings };
+    if (idEdit) { 
+      const r = state.receitas.find(x => x.id === idEdit);
+      Object.assign(r, dados); 
+      await salvar('receitas', r);
+    } else { 
+      const novo = { id: uid(), ...dados };
+      state.receitas.push(novo); 
+      await salvar('receitas', novo);
+    }
+    e.target.reset(); document.getElementById("ingredientes-container").innerHTML = ""; 
+    document.getElementById("receita-id-edit").value = ""; 
+    document.getElementById("btn-salvar-receita").textContent = "Salvar Receita"; 
+    document.getElementById("btn-cancelar-receita").classList.add("hidden"); 
+    renderizar(); toast("Receita salva!");
   };
 
   document.getElementById("btn-add-ingrediente").onclick = () => {
@@ -286,6 +503,28 @@ async function init() {
       <input type="number" class="ing-qtd" step="any" placeholder="Qtd" required />
       <button type="button" class="btn-mini" onclick="this.parentElement.remove()">X</button>`;
     document.getElementById("ingredientes-container").appendChild(div);
+  };
+
+  document.getElementById("btn-cancelar-insumo").onclick = () => { 
+    document.getElementById("form-novo-item").reset(); 
+    document.getElementById("insumo-id-edit").value = ""; 
+    document.getElementById("btn-salvar-insumo").textContent = "Criar Insumo"; 
+    document.getElementById("btn-cancelar-insumo").classList.add("hidden"); 
+  };
+  
+  document.getElementById("btn-cancelar-receita").onclick = () => { 
+    document.getElementById("form-nova-receita").reset(); 
+    document.getElementById("ingredientes-container").innerHTML = ""; 
+    document.getElementById("receita-id-edit").value = ""; 
+    document.getElementById("btn-salvar-receita").textContent = "Salvar Receita"; 
+    document.getElementById("btn-cancelar-receita").classList.add("hidden"); 
+  };
+  
+  document.getElementById("btn-cancelar-cliente").onclick = () => { 
+    document.getElementById("form-cliente").reset(); 
+    document.getElementById("cliente-id-edit").value = ""; 
+    document.getElementById("btn-salvar-cliente").textContent = "Cadastrar"; 
+    document.getElementById("btn-cancelar-cliente").classList.add("hidden"); 
   };
 
   // 5. Carregar Dados e Mostrar
