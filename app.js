@@ -115,7 +115,14 @@ async function carregar() {
         s.from('congelados').select('*')
       ]);
 
-      if (it.data) state.itens = it.data.map(i => ({...i, custoMedio: Number(i.custo_medio), estoqueMinimo: Number(i.estoque_minimo), quantidade: Number(i.quantidade)}));
+      if (it.data) {
+        const cloudItens = it.data.map(i => ({...i, custoMedio: Number(i.custo_medio), estoqueMinimo: Number(i.estoque_minimo), quantidade: Number(i.quantidade)}));
+        // Preservar o pesoMedia local para não perder o "reset" após o sync
+        state.itens = cloudItens.map(ci => {
+          const local = state.itens.find(li => li.id === ci.id);
+          return { ...ci, pesoMedia: (local && local.pesoMedia !== undefined) ? local.pesoMedia : ci.quantidade };
+        });
+      }
       if (cl.data) state.clientes = cl.data.map(c => ({...c, ultimaConversa: c.ultima_conversa}));
       if (rec.data) state.receitas = rec.data.map(r => ({...r, precoVenda: Number(r.preco_venda), rendimento: Number(r.rendimento)}));
       if (enc.data) state.encomendas = enc.data.map(e => ({...e, valorTotal: Number(e.valor_total), clienteId: e.cliente_id, dataEntrega: e.data_entrega}));
@@ -148,6 +155,8 @@ async function salvar(tabela = null, dados = null) {
         if (obj.itemId !== undefined) { obj.item_id = obj.itemId || null; delete obj.itemId; }
         if (obj.detalhesIngredientes !== undefined) { obj.detalhes_ingredientes = obj.detalhesIngredientes; delete obj.detalhesIngredientes; }
         if (obj.criado_at !== undefined) { obj.created_at = obj.criado_at; delete obj.criado_at; }
+        
+        delete obj.pesoMedia; // Campo apenas local
         return obj;
       });
       const { error } = await s.from(tabela).upsert(dbPayload);
@@ -307,7 +316,14 @@ function renderizar() {
     }
 
     const containerEdit = document.getElementById("editar-itens-container");
-    if (containerEdit) containerEdit.innerHTML = `<table class="tabela-info"><thead><tr><th>Insumo</th><th>Custo</th><th>Ações</th></tr></thead><tbody>` + state.itens.sort((a,b) => a.nome.localeCompare(b.nome)).map(it => `<tr><td>${it.nome}</td><td>${formatarMoedaLonga(it.custoMedio)}</td><td><button class="btn-mini" onclick="editarInsumo('${it.id}')">Editar</button></td></tr>`).join("") + "</tbody></table>";
+    if (containerEdit) {
+      containerEdit.innerHTML = `<table class="tabela-info"><thead><tr><th>Insumo</th><th>Custo (R$)</th><th>Ações</th></tr></thead><tbody>` + 
+        state.itens.sort((a,b) => a.nome.localeCompare(b.nome)).map(it => `<tr>
+          <td>${it.nome}</td>
+          <td><input type="number" step="any" value="${it.custoMedio}" style="width:80px; padding:2px; border:1px solid var(--border); border-radius:4px" onchange="window.atualizarCustoInsumo('${it.id}', this.value)" /></td>
+          <td><button class="btn-mini" onclick="editarInsumo('${it.id}')">Editar</button></td>
+        </tr>`).join("") + "</tbody></table>";
+    }
 
     // 8. Lista de Compras Consolidada (Por Receita Inteira)
     atualizarListaCompras();
@@ -318,6 +334,17 @@ function renderizar() {
     atualizarSelects();
   } catch (e) { console.error(e); }
 }
+
+window.atualizarCustoInsumo = async (id, valor) => {
+  const item = state.itens.find(i => i.id === id);
+  if (item) {
+    item.custoMedio = Number(valor) || 0;
+    item.pesoMedia = 0; // "Ignore as passadas" -> Reseta a inércia da média
+    await salvar('itens', item);
+    renderizar();
+    toast("Custo atualizado!");
+  }
+};
 
 function atualizarListaCompras() {
   const container = document.getElementById("lista-compras-consolidada");
@@ -592,14 +619,16 @@ async function init() {
   document.getElementById("form-novo-item").onsubmit = async (e) => {
     e.preventDefault();
     const idEdit = document.getElementById("insumo-id-edit").value;
-    const dados = { id: idEdit || uid(), nome: document.getElementById("novo-item-nome").value, unidade: document.getElementById("novo-item-unidade").value, custoMedio: Number(document.getElementById("novo-item-custo").value) || 0, estoqueMinimo: Number(document.getElementById("novo-item-minimo").value) || 0 };
+    const novoCusto = Number(document.getElementById("novo-item-custo").value) || 0;
+    const dados = { id: idEdit || uid(), nome: document.getElementById("novo-item-nome").value, unidade: document.getElementById("novo-item-unidade").value, custoMedio: novoCusto, estoqueMinimo: Number(document.getElementById("novo-item-minimo").value) || 0 };
     
     if (idEdit) {
       const item = state.itens.find(x => x.id === idEdit);
+      if (item.custoMedio !== novoCusto) item.pesoMedia = 0; // Editou -> Reseta peso
       Object.assign(item, dados);
       await salvar('itens', item);
     } else {
-      const novo = { ...dados, quantidade: 0 };
+      const novo = { ...dados, quantidade: 0, pesoMedia: 0 };
       state.itens.push(novo);
       await salvar('itens', novo);
     }
@@ -609,6 +638,16 @@ async function init() {
     renderizar(); toast("Salvo!");
   };
 
+  // Auxiliar para mostrar preço unitário na entrada
+  const calcUnit = () => {
+    const q = Number(document.getElementById("entrada-qtd").value);
+    const p = Number(document.getElementById("entrada-preco").value);
+    const label = document.querySelector('label[for="entrada-preco"]');
+    if (label) label.textContent = (q > 0 && p > 0) ? `Preço total (Unitário: ${formatarMoeda(p/q)})` : "Preço total pago";
+  };
+  document.getElementById("entrada-qtd").oninput = calcUnit;
+  document.getElementById("entrada-preco").oninput = calcUnit;
+
   document.getElementById("form-entrada").onsubmit = async (e) => {
     e.preventDefault();
     const id = document.getElementById("entrada-nome").value;
@@ -616,7 +655,18 @@ async function init() {
     const preco = Number(document.getElementById("entrada-preco").value);
     const item = state.itens.find(i => i.id === id);
     if (item && qtd > 0) {
-      item.custoMedio = (item.quantidade * item.custoMedio + preco) / (item.quantidade + qtd);
+      const peso = (item.pesoMedia !== undefined && item.pesoMedia !== null) ? item.pesoMedia : item.quantidade;
+      
+      if (peso <= 0) {
+        // Nova base: ignora o passado
+        item.custoMedio = preco / qtd;
+        item.pesoMedia = qtd;
+      } else {
+        // Média ponderada normal
+        item.custoMedio = (peso * item.custoMedio + preco) / (peso + qtd);
+        item.pesoMedia = peso + qtd;
+      }
+      
       item.quantidade += qtd;
       const h = { id: uid(), tipo: 'compra', item_id: id, quantidade: qtd, texto: `Compra: ${qtd}${item.unidade} ${item.nome}`, quando: new Date().toISOString() };
       state.historico.unshift(h);
