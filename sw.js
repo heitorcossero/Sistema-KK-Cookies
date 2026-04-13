@@ -1,4 +1,4 @@
-const CACHE_NAME = 'controle-estoque-v4';
+const CACHE_NAME = 'kk-cookies-v1';
 const ASSETS = [
   './',
   './index.html',
@@ -6,14 +6,16 @@ const ASSETS = [
   './app.js',
   './app_config.js',
   './manifest.json',
-  './icone.jpeg'
+  './Icone.jpeg'
 ];
 
 // Instalação e Cache
 self.addEventListener('install', (e) => {
   self.skipWaiting();
   e.waitUntil(
-    caches.open(CACHE_NAME).then((cache) => cache.addAll(ASSETS))
+    caches.open(CACHE_NAME).then((cache) => {
+      return cache.addAll(ASSETS);
+    })
   );
 });
 
@@ -28,8 +30,7 @@ self.addEventListener('activate', (e) => {
   );
 });
 
-// Estratégia: Network First (Tenta internet, se falhar usa cache)
-// Isso é melhor para apps que mudam muito como o seu
+// Estratégia: Network First
 self.addEventListener('fetch', (e) => {
   if (e.request.method !== 'GET') return;
   

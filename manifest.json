@@ -2,16 +2,22 @@
   "name": "Sistema KK Cookies",
   "short_name": "KK Cookies",
   "description": "Controle de estoque e encomendas para KK Cookies.",
-  "start_url": "index.html",
+  "start_url": "./index.html",
   "display": "standalone",
   "background_color": "#ffffff",
   "theme_color": "#ff69b4",
   "icons": [
     {
-      "src": "icone.jpeg",
+      "src": "Icone.jpeg",
       "sizes": "512x512",
       "type": "image/jpeg",
-      "purpose": "any maskable"
+      "purpose": "any"
+    },
+    {
+      "src": "Icone.jpeg",
+      "sizes": "512x512",
+      "type": "image/jpeg",
+      "purpose": "maskable"
     }
   ]
 }
