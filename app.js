@@ -183,7 +183,7 @@ function renderizar() {
     if (boxAlertas) {
       const baixos = state.itens.filter(i => i.estoqueMinimo > 0 && i.quantidade <= i.estoqueMinimo);
       boxAlertas.classList.toggle("hidden", baixos.length === 0);
-      boxAlertas.innerHTML = baixos.length ? `<h3>⚠️ Insumos em nível crítico</h3><ul>${baixos.map(i => `<li>${i.nome}: ${formatarQtd(i.quantidade)} ${i.unidade} (Mínimo: ${i.estoqueMinimo})</li>`).join("")}</ul>` : "";
+      boxAlertas.innerHTML = baixos.length ? `<h3>⚠️ Insumos em nível crítico</h3><ul>${baixos.map(i => `<li>${escapeHtml(i.nome)}: ${formatarQtd(i.quantidade)} ${escapeHtml(i.unidade)} (Mínimo: ${i.estoqueMinimo})</li>`).join("")}</ul>` : "";
     }
 
     // 2. Estoque de Insumos
@@ -255,7 +255,7 @@ function renderizar() {
     if (lHist) {
       lHist.innerHTML = state.historico.slice(0, 30).map(h => `
         <li class="mov">
-          <div style="flex:1"><strong>${formatarData(h.quando)}</strong> - ${h.texto}</div>
+          <div style="flex:1"><strong>${formatarData(h.quando)}</strong> - ${escapeHtml(h.texto)}</div>
           <button class="btn-mini" onclick="reverterLancamento('${h.id}')">Desfazer</button>
         </li>`).join("");
     }
@@ -272,9 +272,9 @@ function renderizar() {
            const falta = Math.max(0, p.quantidade - noFreezer);
            
            if (falta === 0) {
-             return `<div class="muted-small" style="color:var(--accent-in)">• ${p.quantidade}un ${rec?.nome || 'Cookie'} <strong>(Pronto no Freezer)</strong></div>`;
+             return `<div class="muted-small" style="color:var(--accent-in)">• ${p.quantidade}un ${escapeHtml(rec?.nome || 'Cookie')} <strong>(Pronto no Freezer)</strong></div>`;
            } else {
-             return `<div class="muted-small">• ${p.quantidade}un ${rec?.nome || 'Cookie'} 
+             return `<div class="muted-small">• ${p.quantidade}un ${escapeHtml(rec?.nome || 'Cookie')} 
                      <span style="color:var(--danger)"> (Produzir: ${falta}un | Freezer: ${noFreezer}un)</span></div>`;
            }
         }).join("");
@@ -319,7 +319,7 @@ function renderizar() {
     if (containerEdit) {
       containerEdit.innerHTML = `<table class="tabela-info"><thead><tr><th>Insumo</th><th>Custo (R$)</th><th>Ações</th></tr></thead><tbody>` + 
         state.itens.sort((a,b) => a.nome.localeCompare(b.nome)).map(it => `<tr>
-          <td>${it.nome}</td>
+          <td>${escapeHtml(it.nome)}</td>
           <td><input type="number" step="any" value="${it.custoMedio}" style="width:80px; padding:2px; border:1px solid var(--border); border-radius:4px" onchange="window.atualizarCustoInsumo('${it.id}', this.value)" /></td>
           <td class="btn-row">
             <button class="btn-mini" onclick="editarInsumo('${it.id}')">Editar</button>
@@ -387,8 +387,8 @@ function atualizarListaCompras() {
     const falta = Math.max(0, info.qtd - (itemEstoque?.quantidade || 0));
     if (falta <= 0) return "";
     return `<div class="item-compra" style="margin-bottom:0.3rem">
-      • <strong>${info.nome}</strong>: precisa ${formatarQtd(info.qtd)}${info.unidade} 
-      <span style="color:var(--danger)"> (Falta ${formatarQtd(falta)}${info.unidade})</span>
+      • <strong>${escapeHtml(info.nome)}</strong>: precisa ${formatarQtd(info.qtd)}${escapeHtml(info.unidade)} 
+      <span style="color:var(--danger)"> (Falta ${formatarQtd(falta)}${escapeHtml(info.unidade)})</span>
     </div>`;
   }).filter(h => h !== "").join("");
 
@@ -442,18 +442,18 @@ function atualizarAbaInfo() {
   const elSabores = document.getElementById("lista-desempenho-sabores");
   if (elSabores) {
     const sortSabores = Object.entries(sabores).sort((a,b) => b[1] - a[1]);
-    elSabores.innerHTML = sortSabores.length ? `<ul class="lista-estoque">${sortSabores.map(([n, q]) => `<li><strong>${n}</strong> <span>${q} un</span></li>`).join("")}</ul>` : "<p class='muted-small'>Nenhum pedido registrado.</p>";
+    elSabores.innerHTML = sortSabores.length ? `<ul class="lista-estoque">${sortSabores.map(([n, q]) => `<li><strong>${escapeHtml(n)}</strong> <span>${q} un</span></li>`).join("")}</ul>` : "<p class='muted-small'>Nenhum pedido registrado.</p>";
   }
 }
 
 function atualizarSelects() {
-  const optItens = '<option value="">-- Selecione --</option>' + state.itens.sort((a,b) => (a.nome || "").localeCompare(b.nome || "")).map(i => `<option value="${i.id}">${i.nome}</option>`).join("");
+  const optItens = '<option value="">-- Selecione --</option>' + state.itens.sort((a,b) => (a.nome || "").localeCompare(b.nome || "")).map(i => `<option value="${i.id}">${escapeHtml(i.nome)}</option>`).join("");
   document.querySelectorAll("#entrada-nome, #saida-manual-id, .ing-select").forEach(s => { const v = s.value; s.innerHTML = optItens; s.value = v; });
   
-  const optRec = '<option value="">-- Selecione --</option>' + state.receitas.sort((a,b) => (a.nome || "").localeCompare(b.nome || "")).map(r => `<option value="${r.id}">${r.nome}</option>`).join("");
+  const optRec = '<option value="">-- Selecione --</option>' + state.receitas.sort((a,b) => (a.nome || "").localeCompare(b.nome || "")).map(r => `<option value="${r.id}">${escapeHtml(r.nome)}</option>`).join("");
   document.querySelectorAll("#produzir-receita-id, #congelado-receita-id, .enc-prod-select").forEach(s => { const v = s.value; s.innerHTML = optRec; s.value = v; });
 
-  const optCli = '<option value="">-- Selecione --</option>' + state.clientes.sort((a,b) => (a.nome || "").localeCompare(b.nome || "")).map(c => `<option value="${c.id}">${c.nome}</option>`).join("");
+  const optCli = '<option value="">-- Selecione --</option>' + state.clientes.sort((a,b) => (a.nome || "").localeCompare(b.nome || "")).map(c => `<option value="${c.id}">${escapeHtml(c.nome)}</option>`).join("");
   document.querySelectorAll("#enc-cliente-select").forEach(s => { const v = s.value; s.innerHTML = optCli; s.value = v; });
 }
 
@@ -553,7 +553,7 @@ window.editarReceita = (id) => {
     (r.ingredientes || []).forEach(ing => {
       const div = document.createElement("div");
       div.className = "enc-linha-row";
-      div.innerHTML = `<select class="ing-select" required>${state.itens.map(i => `<option value="${i.id}" ${i.id === ing.itemId ? 'selected' : ''}>${i.nome}</option>`).join("")}</select>
+      div.innerHTML = `<select class="ing-select" required>${state.itens.map(i => `<option value="${i.id}" ${i.id === ing.itemId ? 'selected' : ''}>${escapeHtml(i.nome)}</option>`).join("")}</select>
         <input type="number" class="ing-qtd" step="any" value="${ing.quantidade}" required />
         <button type="button" class="btn-mini" onclick="this.parentElement.remove()">X</button>`;
       container.appendChild(div);
@@ -577,7 +577,7 @@ window.editarEncomenda = (id) => {
     (e.produtos || []).forEach(p => {
       const div = document.createElement("div");
       div.className = "enc-linha-row";
-      div.innerHTML = `<select class="enc-prod-select" required>${state.receitas.map(r => `<option value="${r.id}" ${r.id === p.receitaId ? 'selected' : ''}>${r.nome}</option>`).join("")}</select>
+      div.innerHTML = `<select class="enc-prod-select" required>${state.receitas.map(r => `<option value="${r.id}" ${r.id === p.receitaId ? 'selected' : ''}>${escapeHtml(r.nome)}</option>`).join("")}</select>
         <input type="number" class="enc-prod-qtd" step="1" value="${p.quantidade}" required />
         <button type="button" class="btn-mini" onclick="this.parentElement.remove()">X</button>`;
       container.appendChild(div);
@@ -684,7 +684,7 @@ async function init() {
       }
       
       item.quantidade += qtd;
-      const h = { id: uid(), tipo: 'compra', item_id: id, quantidade: qtd, texto: `Compra: ${qtd}${item.unidade} ${item.nome}`, quando: new Date().toISOString() };
+      const h = { id: uid(), tipo: 'compra', item_id: id, quantidade: qtd, texto: `Compra: ${qtd}${escapeHtml(item.unidade)} ${escapeHtml(item.nome)}`, quando: new Date().toISOString() };
       state.historico.unshift(h);
       await salvar('itens', item);
       await salvar('historico', h);
@@ -699,7 +699,7 @@ async function init() {
     const item = state.itens.find(i => i.id === id);
     if (item && item.quantidade >= qtd && qtd > 0) {
       item.quantidade -= qtd;
-      const h = { id: uid(), tipo: 'saida', item_id: id, quantidade: qtd, texto: `Saída Manual: ${qtd}${item.unidade} ${item.nome}`, quando: new Date().toISOString() };
+      const h = { id: uid(), tipo: 'saida', item_id: id, quantidade: qtd, texto: `Saída Manual: ${qtd}${escapeHtml(item.unidade)} ${escapeHtml(item.nome)}`, quando: new Date().toISOString() };
       state.historico.unshift(h);
       await salvar('itens', item);
       await salvar('historico', h);
@@ -715,7 +715,7 @@ async function init() {
     if (recId && qtd > 0) {
       state.congelados[recId] = (state.congelados[recId] || 0) + (qtd * tipo);
       const r = state.receitas.find(x => x.id === recId);
-      const h = { id: uid(), tipo: 'congelado', receita_id: recId, quantidade: qtd * tipo, texto: `${tipo > 0 ? 'Entrada' : 'Saída'} Freezer: ${qtd}un ${r?.nome || 'Cookie'}`, quando: new Date().toISOString() };
+      const h = { id: uid(), tipo: 'congelado', receita_id: recId, quantidade: qtd * tipo, texto: `${tipo > 0 ? 'Entrada' : 'Saída'} Freezer: ${qtd}un ${escapeHtml(r?.nome || 'Cookie')}`, quando: new Date().toISOString() };
       state.historico.unshift(h);
       await salvar('congelados', { receita_id: recId, quantidade: state.congelados[recId] });
       await salvar('historico', h);
@@ -740,7 +740,7 @@ async function init() {
           await salvar('itens', item);
         }
       }
-      const h = { id: uid(), tipo: 'producao', lucro: lucroG, detalhes_ingredientes: dets, texto: `Produção: ${mult}x ${r.nome}`, quando: new Date().toISOString() };
+      const h = { id: uid(), tipo: 'producao', lucro: lucroG, detalhes_ingredientes: dets, texto: `Produção: ${mult}x ${escapeHtml(r.nome)}`, quando: new Date().toISOString() };
       state.historico.unshift(h);
       await salvar('historico', h);
       e.target.reset(); renderizar(); toast("Estoque baixado!");
@@ -831,7 +831,7 @@ async function init() {
 
   document.getElementById("btn-add-produto-enc").onclick = () => {
     const div = document.createElement("div"); div.className = "enc-linha-row";
-    div.innerHTML = `<select class="enc-prod-select" required>${state.receitas.map(r => `<option value="${r.id}">${r.nome}</option>`).join("")}</select>
+    div.innerHTML = `<select class="enc-prod-select" required>${state.receitas.map(r => `<option value="${r.id}">${escapeHtml(r.nome)}</option>`).join("")}</select>
       <input type="number" class="enc-prod-qtd" step="1" placeholder="Qtd" required />
       <button type="button" class="btn-mini" onclick="this.parentElement.remove()">X</button>`;
     document.getElementById("enc-produtos-container").appendChild(div);
@@ -839,7 +839,7 @@ async function init() {
 
   document.getElementById("btn-add-ingrediente").onclick = () => {
     const div = document.createElement("div"); div.className = "enc-linha-row";
-    div.innerHTML = `<select class="ing-select" required>${state.itens.map(i => `<option value="${i.id}">${i.nome}</option>`).join("")}</select>
+    div.innerHTML = `<select class="ing-select" required>${state.itens.map(i => `<option value="${i.id}">${escapeHtml(i.nome)}</option>`).join("")}</select>
       <input type="number" class="ing-qtd" step="any" placeholder="Qtd" required />
       <button type="button" class="btn-mini" onclick="this.parentElement.remove()">X</button>`;
     document.getElementById("ingredientes-container").appendChild(div);
