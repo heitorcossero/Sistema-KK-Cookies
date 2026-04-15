@@ -644,9 +644,16 @@ async function init() {
   // Auxiliar para mostrar preço unitário na entrada
   const calcUnit = () => {
     const q = Number(document.getElementById("entrada-qtd").value);
-    const p = Number(document.getElementById("entrada-preco").value);
-    const label = document.querySelector('label[for="entrada-preco"]');
-    if (label) label.textContent = (q > 0 && p > 0) ? `Preço total (Unitário: ${formatarMoeda(p/q)})` : "Preço total pago";
+    const precoInput = document.getElementById("entrada-preco").value;
+    const p = Number(precoInput);
+    const label = document.querySelector('label[for="entrada-preco"]') || document.getElementById("entrada-preco")?.parentElement?.querySelector('span');
+    if (label) {
+      if (q > 0 && precoInput !== "" && p > 0) {
+        label.textContent = `Preço Pago (Unitário: ${formatarMoeda(p/q)})`;
+      } else {
+        label.textContent = "Preço Pago";
+      }
+    }
   };
   document.getElementById("entrada-qtd").oninput = calcUnit;
   document.getElementById("entrada-preco").oninput = calcUnit;
@@ -655,9 +662,15 @@ async function init() {
     e.preventDefault();
     const id = document.getElementById("entrada-nome").value;
     const qtd = Number(document.getElementById("entrada-qtd").value);
-    const preco = Number(document.getElementById("entrada-preco").value);
+    const precoInput = document.getElementById("entrada-preco").value;
     const item = state.itens.find(i => i.id === id);
+    
     if (item && qtd > 0) {
+      let preco = Number(precoInput);
+      if (precoInput === "" || precoInput === null) {
+        preco = item.custoMedio * qtd;
+      }
+      
       const peso = (item.pesoMedia !== undefined && item.pesoMedia !== null) ? item.pesoMedia : item.quantidade;
       
       if (peso <= 0) {
