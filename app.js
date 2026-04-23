@@ -116,12 +116,7 @@ async function carregar() {
       ]);
 
       if (it.data) {
-        const cloudItens = it.data.map(i => ({...i, custoMedio: Number(i.custo_medio), estoqueMinimo: Number(i.estoque_minimo), quantidade: Number(i.quantidade)}));
-        // Preservar o pesoMedia local para não perder o "reset" após o sync
-        state.itens = cloudItens.map(ci => {
-          const local = state.itens.find(li => li.id === ci.id);
-          return { ...ci, pesoMedia: (local && local.pesoMedia !== undefined) ? local.pesoMedia : ci.quantidade };
-        });
+        state.itens = it.data.map(i => ({...i, custoMedio: Number(i.custo_medio), estoqueMinimo: Number(i.estoque_minimo), quantidade: Number(i.quantidade)}));
       }
       if (cl.data) state.clientes = cl.data.map(c => ({...c, ultimaConversa: c.ultima_conversa}));
       if (rec.data) state.receitas = rec.data.map(r => ({...r, precoVenda: Number(r.preco_venda), rendimento: Number(r.rendimento)}));
@@ -476,19 +471,22 @@ window.reverterLancamento = async (id) => {
       const it = state.itens.find(i => i.id === h.item_id);
       if (it) {
         const qtdReverter = Number(h.quantidade || 0);
-        const valorReverter = Number(h.valor || 0);
-        const pesoAtual = (it.pesoMedia !== undefined && it.pesoMedia !== null) ? it.pesoMedia : it.quantidade;
+        // Busca o preço nos detalhes (campo persistente)
+        const detalhes = h.detalhes_ingredientes || h.detalhesIngredientes || {};
+        const valorReverter = Number(detalhes.preco || h.valor || 0);
+        
+        const valorAtualTotal = it.quantidade * it.custoMedio;
+        const novaQtd = it.quantidade - qtdReverter;
 
-        if (h.valor !== undefined && pesoAtual > qtdReverter) {
-          // Reverter a média ponderada: (PesoAtual * CustoAtual - ValorRemovido) / (PesoAtual - QtdRemovida)
-          it.custoMedio = (pesoAtual * it.custoMedio - valorReverter) / (pesoAtual - qtdReverter);
-          it.pesoMedia = pesoAtual - qtdReverter;
-        } else if (h.valor !== undefined && pesoAtual <= qtdReverter) {
-          // Se remover tudo, reseta a média
-          it.pesoMedia = 0;
+        if (novaQtd > 0) {
+          // Reverte o valor total e recalcula a média
+          it.custoMedio = (valorAtualTotal - valorReverter) / novaQtd;
+        } else {
+          // Se zerar o estoque, mantém o custo médio anterior ou zero
+          it.custoMedio = it.custoMedio; 
         }
         
-        it.quantidade -= qtdReverter;
+        it.quantidade = novaQtd;
         await salvar('itens', it);
       }
     } else if (h.tipo === 'saida') {
@@ -685,25 +683,17 @@ async function init() {
         preco = item.custoMedio * qtd;
       }
       
-      const peso = (item.pesoMedia !== undefined && item.pesoMedia !== null) ? item.pesoMedia : item.quantidade;
-      
-      if (peso <= 0) {
-        // Nova base: ignora o passado
-        item.custoMedio = preco / qtd;
-        item.pesoMedia = qtd;
-      } else {
-        // Média ponderada normal
-        item.custoMedio = (peso * item.custoMedio + preco) / (peso + qtd);
-        item.pesoMedia = peso + qtd;
-      }
-      
+      // Média ponderada puramente aditiva: (Valor em estoque + Novo Valor) / (Qtd total)
+      const valorAtual = item.quantidade * item.custoMedio;
+      item.custoMedio = (valorAtual + preco) / (item.quantidade + qtd);
       item.quantidade += qtd;
+
       const h = { 
         id: uid(), 
         tipo: 'compra', 
         item_id: id, 
         quantidade: qtd, 
-        valor: preco,
+        detalhes_ingredientes: { preco: preco }, // Salva o valor exato para o estorno
         texto: `Compra: ${qtd}${escapeHtml(item.unidade)} ${escapeHtml(item.nome)} - ${formatarMoeda(preco)}`, 
         quando: new Date().toISOString() 
       };
