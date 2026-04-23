@@ -73,7 +73,7 @@ const formatarData = (iso) => {
   const d = new Date(iso);
   if (isNaN(d.getTime())) return iso;
   const dLocal = new Date(d.getTime() + d.getTimezoneOffset() * 60000);
-  return dLocal.toLocaleDateString("pt-BR");
+  return dLocal.toLocaleString("pt-BR", { day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit' });
 };
 function isMesAtual(dataIso) {
   if (!dataIso) return false;
@@ -249,7 +249,7 @@ function renderizar() {
     // 5. Histórico
     const lHist = document.getElementById("lista-historico-estoque");
     if (lHist) {
-      lHist.innerHTML = state.historico.slice(0, 30).map(h => `
+      lHist.innerHTML = state.historico.slice(0, 100).map(h => `
         <li class="mov">
           <div style="flex:1"><strong>${formatarData(h.quando)}</strong> - ${escapeHtml(h.texto)}</div>
           <button class="btn-mini" onclick="reverterLancamento('${h.id}')">Desfazer</button>
