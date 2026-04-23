@@ -194,6 +194,7 @@ function renderizar() {
           <div class="item-col-principal">
             <strong class="nome">${escapeHtml(it.nome)}</strong>
             <small class="item-preco-linha">Custo: ${formatarMoedaLonga(it.custoMedio)} / ${it.unidade}</small>
+            <small class="item-preco-linha" style="color:var(--money); font-weight:600">Total: ${formatarMoeda(it.quantidade * it.custoMedio)}</small>
           </div>
           <span class="saldo ${it.estoqueMinimo > 0 && it.quantidade <= it.estoqueMinimo ? 'alerta-baixo' : ''}">
             ${formatarQtd(it.quantidade)} ${it.unidade}
@@ -474,7 +475,20 @@ window.reverterLancamento = async (id) => {
     if (h.tipo === 'compra') {
       const it = state.itens.find(i => i.id === h.item_id);
       if (it) {
-        it.quantidade -= Number(h.quantidade || 0);
+        const qtdReverter = Number(h.quantidade || 0);
+        const valorReverter = Number(h.valor || 0);
+        const pesoAtual = (it.pesoMedia !== undefined && it.pesoMedia !== null) ? it.pesoMedia : it.quantidade;
+
+        if (h.valor !== undefined && pesoAtual > qtdReverter) {
+          // Reverter a média ponderada: (PesoAtual * CustoAtual - ValorRemovido) / (PesoAtual - QtdRemovida)
+          it.custoMedio = (pesoAtual * it.custoMedio - valorReverter) / (pesoAtual - qtdReverter);
+          it.pesoMedia = pesoAtual - qtdReverter;
+        } else if (h.valor !== undefined && pesoAtual <= qtdReverter) {
+          // Se remover tudo, reseta a média
+          it.pesoMedia = 0;
+        }
+        
+        it.quantidade -= qtdReverter;
         await salvar('itens', it);
       }
     } else if (h.tipo === 'saida') {
@@ -684,7 +698,15 @@ async function init() {
       }
       
       item.quantidade += qtd;
-      const h = { id: uid(), tipo: 'compra', item_id: id, quantidade: qtd, texto: `Compra: ${qtd}${escapeHtml(item.unidade)} ${escapeHtml(item.nome)}`, quando: new Date().toISOString() };
+      const h = { 
+        id: uid(), 
+        tipo: 'compra', 
+        item_id: id, 
+        quantidade: qtd, 
+        valor: preco,
+        texto: `Compra: ${qtd}${escapeHtml(item.unidade)} ${escapeHtml(item.nome)} - ${formatarMoeda(preco)}`, 
+        quando: new Date().toISOString() 
+      };
       state.historico.unshift(h);
       await salvar('itens', item);
       await salvar('historico', h);
