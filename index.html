@@ -67,7 +67,12 @@
           <h2>🥣 Registro de Receita (Produção)</h2>
           <form id="form-produzir" class="form">
             <label><span>Receita</span><select id="produzir-receita-id" required><option value="">Selecione...</option></select></label>
-            <label><span>Vezes a receita</span><input type="number" id="produzir-qtd" value="1" step="1" min="1" required /></label>
+            <label><span>Vezes a receita</span>
+              <div style="display: flex; gap: 0.5rem; align-items: center;">
+                <input type="number" id="produzir-qtd" value="1" step="0.5" min="0.5" required style="flex: 1;" />
+                <button type="button" class="btn btn-mini" onclick="document.getElementById('produzir-qtd').value = 0.5">Meia</button>
+              </div>
+            </label>
             <button type="submit" class="btn btn-secondary">Baixar Estoque</button>
           </form>
         </section>
@@ -231,9 +236,9 @@
         </section>
 
         <section class="card card-markup-simp">
-          <h3>📈 Lucro Realizado</h3>
+          <h3>📈 Faturamento Realizado</h3>
           <p id="lucro-producoes" class="valor-total" style="color:var(--accent-in)">R$ 0,00</p>
-          <p class="muted-small">Soma do lucro das produções registradas.</p>
+          <p class="muted-small">Soma das vendas das produções registradas.</p>
         </section>
 
         <section class="card">

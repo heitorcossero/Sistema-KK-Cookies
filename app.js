@@ -403,7 +403,12 @@ function atualizarAbaInfo() {
     }
   });
 
-  const lProducoes = state.historico.reduce((acc, h) => acc + (Number(h.lucro) || 0), 0);
+  const lProducoes = state.historico.reduce((acc, h) => {
+    if (h.tipo === 'producao') {
+      return acc + (Number(h.faturamento) || Number(h.lucro) || 0);
+    }
+    return acc;
+  }, 0);
   const pMarkup = vEstoque * 3.7;
 
   const elVEstoque = document.getElementById("valor-total");
@@ -741,7 +746,8 @@ async function init() {
     const mult = Number(document.getElementById("produzir-qtd").value);
     if (r && mult > 0) {
       const custoT = calcularCustoReceita(r) * mult;
-      const lucroG = (r.precoVenda * mult) - custoT;
+      const faturamentoG = r.precoVenda * mult;
+      const lucroG = faturamentoG - custoT;
       const dets = [];
       for (const ing of (r.ingredientes || [])) {
         const item = state.itens.find(i => i.id === ing.itemId);
@@ -752,7 +758,15 @@ async function init() {
           await salvar('itens', item);
         }
       }
-      const h = { id: uid(), tipo: 'producao', lucro: lucroG, detalhes_ingredientes: dets, texto: `Produção: ${mult}x ${escapeHtml(r.nome)}`, quando: new Date().toISOString() };
+      const h = { 
+        id: uid(), 
+        tipo: 'producao', 
+        lucro: lucroG, 
+        faturamento: faturamentoG, 
+        detalhes_ingredientes: dets, 
+        texto: `Produção: ${mult}x ${escapeHtml(r.nome)}`, 
+        quando: new Date().toISOString() 
+      };
       state.historico.unshift(h);
       await salvar('historico', h);
       e.target.reset(); renderizar(); toast("Estoque baixado!");
