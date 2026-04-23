@@ -298,12 +298,22 @@ function renderizar() {
         const custoUnit = custoTotal / (r.rendimento || 1);
         const lucroTotal = r.precoVenda - custoTotal;
         const lucroUnit = (r.precoVenda / (r.rendimento || 1)) - custoUnit;
-        return `<div class="card-receita-edit">
-          <h3>${escapeHtml(r.nome)}</h3>
+        
+        // Alerta se o custo unitário for muito alto (provável erro de unidade)
+        const erroSuspeito = custoUnit > 20; 
+        const estiloCard = erroSuspeito ? 'style="border: 2px solid var(--danger); background: #fff5f5"' : '';
+        const estiloCusto = erroSuspeito ? 'style="color:var(--danger); font-weight:bold"' : '';
+
+        return `<div class="card-receita-edit" ${estiloCard}>
+          <div class="flex-row" style="justify-content:space-between; align-items:flex-start">
+            <h3>${escapeHtml(r.nome)}</h3>
+            ${erroSuspeito ? '<span title="Custo muito alto! Verifique as quantidades e os custos dos insumos." style="cursor:help">⚠️</span>' : ''}
+          </div>
           <p class="muted-small">Custo Total: ${formatarMoeda(custoTotal)} | <span style="color:var(--accent-in); font-weight:bold">Lucro Total: ${formatarMoeda(lucroTotal)}</span></p>
-          <p class="muted-small">Custo Unit: ${formatarMoeda(custoUnit)} | <span style="color:var(--accent-in); font-weight:bold">Lucro Unit: ${formatarMoeda(lucroUnit)}</span></p>
-          <p class="muted-small">Rendimento: ${r.rendimento} un | Venda: ${formatarMoeda(r.precoVenda)}</p>
-          <div class="btn-row">
+          <p class="muted-small">Custo Unit: <span ${estiloCusto}>${formatarMoeda(custoUnit)}</span> | <span style="color:var(--accent-in); font-weight:bold">Lucro Unit: ${formatarMoeda(lucroUnit)}</span></p>
+          ${erroSuspeito ? `<p style="color:var(--danger); font-size:0.7rem; margin-top:0.2rem; font-weight:bold">⚠️ VALOR SUSPEITO: Verifique se algum insumo está com custo unitário errado ou se a quantidade na receita está em gramas/unidades corretas.</p>` : ''}
+          <p class="muted-small">Rendimento: ${r.rendimento} un | Venda Total: ${formatarMoeda(r.precoVenda)}</p>
+          <div class="btn-row" style="margin-top:0.5rem">
             <button class="btn-mini" onclick="editarReceita('${r.id}')">Editar</button>
             <button class="btn-mini" onclick="excluir('receitas', '${r.id}')">X</button>
           </div>
