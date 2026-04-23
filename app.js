@@ -752,34 +752,52 @@ async function init() {
 
   document.getElementById("form-produzir").onsubmit = async (e) => {
     e.preventDefault();
-    const r = state.receitas.find(x => x.id === document.getElementById("produzir-receita-id").value);
+    const rId = document.getElementById("produzir-receita-id").value;
+    const r = state.receitas.find(x => x.id === rId);
     const mult = Number(document.getElementById("produzir-qtd").value);
+    
     if (r && mult > 0) {
       const custoT = calcularCustoReceita(r) * mult;
-      const faturamentoG = r.precoVenda * mult;
+      const faturamentoG = (Number(r.precoVenda) || 0) * mult;
       const lucroG = faturamentoG - custoT;
       const dets = [];
+      
+      // 1. Atualizar itens localmente primeiro para velocidade
       for (const ing of (r.ingredientes || [])) {
         const item = state.itens.find(i => i.id === ing.itemId);
         if (item) { 
           const q = ing.quantidade * mult; 
           item.quantidade -= q; 
           dets.push({ itemId: ing.itemId, quantidade: q });
-          await salvar('itens', item);
         }
       }
+
       const h = { 
         id: uid(), 
         tipo: 'producao', 
         lucro: lucroG, 
         faturamento: faturamentoG, 
         detalhes_ingredientes: dets, 
-        texto: `Produção: ${mult}x ${escapeHtml(r.nome)}`, 
+        texto: `Produção: ${mult}x ${r.nome}`, 
         quando: new Date().toISOString() 
       };
+
+      // 2. Atualizar estado local e renderizar IMEDIATAMENTE
       state.historico.unshift(h);
-      await salvar('historico', h);
-      e.target.reset(); renderizar(); toast("Estoque baixado!");
+      e.target.reset(); 
+      renderizar(); 
+      toast("Estoque baixado!");
+
+      // 3. Salvar na nuvem em segundo plano (sem travar a tela)
+      try {
+        await salvar('historico', h);
+        for (const ing of (r.ingredientes || [])) {
+          const item = state.itens.find(i => i.id === ing.itemId);
+          if (item) await salvar('itens', item);
+        }
+      } catch (err) {
+        console.error("Erro ao sincronizar produção:", err);
+      }
     }
   };
 
