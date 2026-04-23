@@ -111,7 +111,7 @@ async function carregar() {
         s.from('clientes').select('*'),
         s.from('receitas').select('*'),
         s.from('encomendas').select('*'),
-        s.from('historico').select('*').order('quando', { ascending: false }).limit(50),
+        s.from('historico').select('*').order('quando', { ascending: false }).limit(100),
         s.from('congelados').select('*')
       ]);
 
