@@ -402,30 +402,47 @@ function atualizarListaCompras() {
 }
 
 function atualizarAbaInfo() {
-  let vEstoque = state.itens.reduce((acc, it) => acc + (it.quantidade * it.custoMedio), 0);
+  let vEstoque = 0;
   
-  // Adicionar valor dos cookies no freezer (baseado no custo de produção)
-  Object.entries(state.congelados).forEach(([recId, qtd]) => {
-    const r = state.receitas.find(rec => rec.id === recId);
-    if (r && qtd > 0) {
-      const custoUnit = calcularCustoReceita(r) / (r.rendimento || 1);
-      vEstoque += (custoUnit * qtd);
-    }
-  });
+  // 1. Somar Insumos
+  if (state.itens && state.itens.length > 0) {
+    state.itens.forEach(it => {
+      const q = Number(it.quantidade) || 0;
+      const c = Number(it.custoMedio) || 0;
+      vEstoque += (q * c);
+    });
+  }
+  
+  // 2. Somar Freezer
+  if (state.congelados) {
+    Object.entries(state.congelados).forEach(([recId, qtd]) => {
+      const r = state.receitas.find(rec => rec.id === recId);
+      const q = Number(qtd) || 0;
+      if (r && q > 0) {
+        const custoTotalRec = calcularCustoReceita(r) || 0;
+        const rend = Number(r.rendimento) || 1;
+        vEstoque += ((custoTotalRec / rend) * q);
+      }
+    });
+  }
 
-  const lProducoes = state.historico.reduce((acc, h) => {
+  // 3. Faturamento Realizado (Soma de todos os faturamentos no histórico)
+  const faturamentoRealizado = (state.historico || []).reduce((acc, h) => {
     if (h.tipo === 'producao') {
+      // Prioriza h.faturamento, se não existir usa h.lucro como base aproximada para registros antigos
       return acc + (Number(h.faturamento) || Number(h.lucro) || 0);
     }
     return acc;
   }, 0);
+  
   const pMarkup = vEstoque * 3.7;
 
+  // Atualizar UI
   const elVEstoque = document.getElementById("valor-total");
   if (elVEstoque) elVEstoque.textContent = formatarMoeda(vEstoque);
 
   const elLProducoes = document.getElementById("lucro-producoes");
-  if (elLProducoes) elLProducoes.textContent = formatarMoeda(lProducoes);
+  if (elLProducoes) elLProducoes.textContent = formatarMoeda(faturamentoRealizado);
 
   const elPMarkup = document.getElementById("lucro-markup-estoque");
   if (elPMarkup) elPMarkup.textContent = formatarMoeda(pMarkup);
