@@ -1,5 +1,5 @@
 // Renderização de todas as telas
-import { state, initSupabase, calcularCustoReceita, conexao, totalPendentes } from "./data.js";
+import { state, initSupabase, calcularCustoReceita, conexao, totalPendentes, estaOffline } from "./data.js";
 import { MARKUP, CATEGORIAS, nomeCategoria, nomeForma, naturezaCategoria } from "./config.js";
 import { desenharGraficoFaturamento, desenharFluxoCaixa } from "./chart.js";
 import {
@@ -73,9 +73,14 @@ function renderSyncStatus() {
   } else if (conexao.ok) {
     rotulo = "Sincronizado";
     dica = "A última gravação chegou na nuvem.";
+  } else if (estaOffline()) {
+    rotulo = "Sem internet";
+    dica = "O aparelho está offline. O que você registrar fica guardado e sobe quando a internet voltar.";
   } else {
-    rotulo = "Sem conexão";
-    dica = "A nuvem não respondeu. Os lançamentos ficam neste aparelho até voltar.";
+    // Antes dizia "Sem conexão" também aqui — com a internet funcionando.
+    // Quem estava online concluía que o aviso era falso e seguia em frente.
+    rotulo = "Nuvem recusou";
+    dica = "A internet está funcionando, mas o banco não aceitou a última operação.";
   }
 
   status.textContent = rotulo;

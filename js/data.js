@@ -20,6 +20,10 @@ export const state = {
 // Vira true quando a nuvem responde e false quando uma operação falha.
 export const conexao = { ok: false };
 
+// Falha de gravação não é sinônimo de estar sem internet. Separar as duas
+// coisas é o que faz o aviso ser levado a sério por quem está online.
+export const estaOffline = () => globalThis.navigator?.onLine === false;
+
 // Alterações que a nuvem não aceitou. Ficam numa chave própria do
 // localStorage — separada do estado — porque o estado é substituído a cada
 // carga da nuvem e a fila não pode ser levada junto.
@@ -299,7 +303,12 @@ export async function salvar(tabela = null, dados = null) {
     conexao.ok = false;
     enfileirar({ tabela, dados });
     console.error("Erro de conexão com o Supabase:", err);
-    toast("Sem conexão — guardado no aparelho e será reenviado.", true);
+    // "Sem conexão" era o texto de antes, e ele mentia: esta parte também
+    // dispara com a internet funcionando (servidor fora do ar, sessão vencida).
+    // O usuário leu "sem conexão", viu que estava online e ignorou o aviso.
+    toast(estaOffline()
+      ? "Sem internet — guardado no aparelho e será reenviado."
+      : "Não consegui falar com a nuvem — guardado no aparelho e será reenviado.", true);
     return { ok: false, erro: err };
   }
 }
@@ -344,7 +353,7 @@ export function calcularCustoReceita(r) {
 // entrou. Antes devolvia só "deu certo/deu errado" e o erro ficava escondido.
 export async function migrarParaNuvem() {
   const s = initSupabase();
-  if (!s) { toast("Sem conexão com a nuvem.", true); return { ok: false, falhas: ["conexão"] }; }
+  if (!s) { toast("A conexão com a nuvem não carregou nesta aba.", true); return { ok: false, falhas: ["conexão"] }; }
 
   const cong = Object.entries(state.congelados || {}).map(([receita_id, quantidade]) => ({ receita_id, quantidade }));
   const conf = Object.entries(state.config || {}).map(([chave, valor]) => ({ chave, valor }));

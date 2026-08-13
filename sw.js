@@ -1,4 +1,4 @@
-const CACHE_NAME = 'kk-cookies-v11';
+const CACHE_NAME = 'kk-cookies-v12';
 const ASSETS = [
   './',
   './index.html',
