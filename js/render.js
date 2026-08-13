@@ -3,7 +3,7 @@ import { state, initSupabase, calcularCustoReceita } from "./data.js";
 import { MARKUP } from "./config.js";
 import { desenharGraficoFaturamento } from "./chart.js";
 import {
-  escapeHtml, formatarMoeda, formatarMoedaLonga, formatarQtd,
+  escapeHtml, formatarMoeda, formatarMoedaLonga, formatarMoedaExata, formatarQtd,
   formatarData, formatarDataCurta, isMesAtual, getNomeMesAtual
 } from "./utils.js";
 
@@ -80,7 +80,7 @@ function renderEstoque() {
     <li class="item-estoque ${it.estoqueMinimo > 0 && it.quantidade <= it.estoqueMinimo ? "alerta-baixo" : ""}">
       <div>
         <strong class="nome">${escapeHtml(it.nome)}</strong>
-        <small class="item-preco-linha">${formatarMoedaLonga(it.custoMedio)} por ${escapeHtml(it.unidade)}</small>
+        <small class="item-preco-linha" title="Custo exato usado nos cálculos: ${formatarMoedaExata(it.custoMedio)} por ${escapeHtml(it.unidade)}">${formatarMoedaLonga(it.custoMedio)} por ${escapeHtml(it.unidade)}</small>
         <small class="item-preco-linha total">${formatarMoeda(it.quantidade * it.custoMedio)} em estoque</small>
       </div>
       <span class="saldo">${formatarQtd(it.quantidade)} ${escapeHtml(it.unidade)}</span>

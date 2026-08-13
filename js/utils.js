@@ -4,7 +4,23 @@ export const uid = () => crypto.randomUUID?.() ?? String(Date.now()) + Math.rand
 
 export const formatarMoeda = (n) => (n || 0).toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
 
-export const formatarMoedaLonga = (n) => (n || 0).toLocaleString("pt-BR", { style: "currency", currency: "BRL", minimumFractionDigits: 3 });
+// Custo unitário na tela: 3 casas dão conta do preço por grama sem poluir.
+// Só que valores muito baixos apareceriam como R$ 0,000 e pareceriam zerados,
+// então abaixo de um milésimo o formato abre mais casas. É formatação apenas:
+// as contas sempre usam o valor cheio guardado no insumo.
+export const formatarMoedaLonga = (n) => {
+  const v = Number(n) || 0;
+  const casas = v !== 0 && Math.abs(v) < 0.001 ? 6 : 3;
+  return v.toLocaleString("pt-BR", {
+    style: "currency", currency: "BRL",
+    minimumFractionDigits: casas, maximumFractionDigits: casas
+  });
+};
+
+// Valor sem arredondar, para conferir o número exato usado nos cálculos
+export const formatarMoedaExata = (n) => (Number(n) || 0).toLocaleString("pt-BR", {
+  style: "currency", currency: "BRL", minimumFractionDigits: 2, maximumFractionDigits: 10
+});
 
 export const formatarQtd = (n) => Number(n || 0).toFixed(3).replace(/\.?0+$/, "");
 
