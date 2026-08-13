@@ -202,17 +202,18 @@
                   <button type="button" class="btn-mini" id="btn-meia-receita">Meia</button>
                 </div>
               </label>
-              <label><span>Quantos cookies saíram</span>
+              <label><span id="label-produzir-rendeu">Quantos cookies saíram</span>
                 <input type="number" id="produzir-rendeu" step="1" min="0" placeholder="0" required />
                 <small class="campo-dica hidden" id="produzir-dica-rendeu">
                   <span id="produzir-rendeu-previsto"></span>
                   <button type="button" class="btn-mini" id="btn-rendeu-previsto">Usar o previsto</button>
                 </small>
               </label>
-              <label class="opcao">
+              <label class="opcao" id="campo-produzir-freezer">
                 <input type="checkbox" id="produzir-guardar-freezer" checked />
                 <span>Guardar os cookies no freezer</span>
               </label>
+              <p class="card-nota hidden" id="nota-produzir-recheio">O recheio pesado entra no estoque e o custo de cada grama é recalculado com o que saiu de verdade.</p>
               <button type="submit" class="btn btn-secondary">Baixar do estoque</button>
             </form>
           </section>
@@ -477,11 +478,24 @@
             <div class="card-head"><h2 id="titulo-form-receita">Nova receita</h2></div>
             <form id="form-nova-receita" class="form">
               <input type="hidden" id="receita-id-edit" />
+              <label><span>O que esta receita produz?</span>
+                <select id="receita-tipo">
+                  <option value="cookie">Cookies prontos</option>
+                  <option value="recheio">Recheio (vai para o estoque, em gramas)</option>
+                </select>
+              </label>
               <label><span>Nome</span><input type="text" id="receita-nome" required /></label>
               <div class="grid-2">
-                <label><span>Rendimento médio (unidades)</span><input type="number" id="receita-rendimento" min="1" placeholder="Ex.: 20" required /></label>
-                <label><span>Preço de venda de cada cookie</span><input type="number" id="receita-preco-unitario" step="any" min="0" placeholder="R$ 0,00" required /></label>
+                <label><span id="label-receita-rendimento">Rendimento médio (unidades)</span><input type="number" id="receita-rendimento" step="any" min="0" placeholder="Ex.: 20" required /></label>
+                <label id="campo-receita-preco"><span>Preço de venda de cada cookie</span><input type="number" id="receita-preco-unitario" step="any" min="0" placeholder="R$ 0,00" required /></label>
+                <label id="campo-receita-unidade" class="hidden"><span>Medida do recheio</span>
+                  <select id="receita-unidade">
+                    <option value="g">gramas (g)</option>
+                    <option value="ml">mililitros (ml)</option>
+                  </select>
+                </label>
               </div>
+              <p class="card-nota hidden" id="nota-receita-recheio">Ao salvar, o recheio vira um insumo de estoque com este nome. Depois é só colocá-lo como ingrediente do cookie, na quantidade que cada um leva.</p>
               <div id="ingredientes-container" class="enc-linhas-editor"></div>
               <button type="button" id="btn-add-ingrediente" class="btn btn-ghost">Adicionar ingrediente</button>
               <div class="flex-row">

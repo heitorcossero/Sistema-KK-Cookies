@@ -1743,6 +1743,24 @@ details.concluidos .lista-encomendas { margin-top: var(--s4); }
   color: var(--vermelho);
 }
 
+/* Recheio anda junto dos insumos e das receitas, então precisa de uma marca
+   discreta para não ser confundido com um pacote que se compra. */
+.selo-recheio {
+  display: inline-block;
+  padding: 2px 7px;
+  margin-left: var(--s2);
+  font-family: var(--texto);
+  font-size: 0.6rem;
+  font-weight: 700;
+  letter-spacing: 0.07em;
+  text-transform: uppercase;
+  vertical-align: middle;
+  color: var(--biscoito);
+  background: var(--biscoito-fundo);
+  border: 1px solid rgba(210, 162, 115, 0.3);
+  border-radius: var(--r-pill);
+}
+
 /* =========================================================
    ESTADOS VAZIOS
    ========================================================= */

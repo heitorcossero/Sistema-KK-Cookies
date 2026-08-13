@@ -32,6 +32,11 @@ CREATE TABLE IF NOT EXISTS itens (
 -- rendimento é a média esperada da receita: serve de estimativa para a lista
 -- de compras e para sugerir quantos cookies saíram ao registrar a produção.
 -- ingredientes: [{ "itemId": "uuid", "quantidade": 500 }, ...]
+-- tipo diz o que a receita produz: 'cookie' (o padrão) ou 'recheio'. Receita de
+-- recheio não vira cookie nem vai para o freezer: ela abastece um insumo, o
+-- item_id, e aí o cookie consome esse insumo como consome farinha. É assim que
+-- um pote que rendeu menos encarece o grama sem ninguém refazer conta.
+-- Para o recheio, rendimento é quanto o pote rende na unidade abaixo.
 CREATE TABLE IF NOT EXISTS receitas (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   nome TEXT NOT NULL,
@@ -39,6 +44,9 @@ CREATE TABLE IF NOT EXISTS receitas (
   preco_unitario NUMERIC DEFAULT 0,
   preco_venda NUMERIC DEFAULT 0,
   ingredientes JSONB DEFAULT '[]'::jsonb,
+  tipo TEXT DEFAULT 'cookie',
+  item_id UUID REFERENCES itens(id) ON DELETE SET NULL,
+  unidade TEXT DEFAULT 'g',
   created_at TIMESTAMPTZ DEFAULT now()
 );
 
@@ -187,6 +195,14 @@ UPDATE receitas
 -- da tabela historico, mais acima, para o significado de cada coluna.
 ALTER TABLE historico ADD COLUMN IF NOT EXISTS rendimento_real NUMERIC;
 ALTER TABLE historico ADD COLUMN IF NOT EXISTS multiplicador NUMERIC;
+
+-- O recheio saiu de dentro da receita do cookie e virou receita própria, que
+-- abastece um insumo em gramas. Toda receita que já existia é de cookie, e o
+-- DEFAULT abaixo cuida disso sozinho — não há nada para converter.
+ALTER TABLE receitas ADD COLUMN IF NOT EXISTS tipo TEXT DEFAULT 'cookie';
+ALTER TABLE receitas ADD COLUMN IF NOT EXISTS item_id UUID REFERENCES itens(id) ON DELETE SET NULL;
+ALTER TABLE receitas ADD COLUMN IF NOT EXISTS unidade TEXT DEFAULT 'g';
+UPDATE receitas SET tipo = 'cookie' WHERE tipo IS NULL;
 
 
 -- ------------------------------------------------------------

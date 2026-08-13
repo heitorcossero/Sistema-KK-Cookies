@@ -1,5 +1,5 @@
 // Ações do usuário: formulários, botões e eventos delegados
-import { state, salvar, apagarDaNuvem, calcularCustoReceita, migrarParaNuvem, montarBackup, restaurarBackup, sincronizarPendentes } from "./data.js";
+import { state, salvar, apagarDaNuvem, calcularCustoReceita, ehRecheio, receitaDoInsumo, migrarParaNuvem, montarBackup, restaurarBackup, sincronizarPendentes } from "./data.js";
 import { renderizar, novaLinhaIngrediente, novaLinhaProduto, filtroFinanceiro, atualizarCategorias } from "./render.js";
 import { uid, toast, confirmar, escapeHtml, formatarMoeda, formatarQtd, dataDoDia, isoDeHojeLocal } from "./utils.js";
 import { CATEGORIAS, FORMAS_PAGAMENTO, nomeCategoria } from "./config.js";
@@ -86,10 +86,28 @@ function cancelarCliente() {
   el("btn-cancelar-cliente").classList.add("hidden");
 }
 
+// Receita de recheio não se vende por unidade: ela rende peso. O formulário é
+// o mesmo, trocando o que faz sentido perguntar. O required sai junto com o
+// campo escondido — campo obrigatório e invisível trava o envio no navegador.
+function aplicarTipoReceita() {
+  const recheio = el("receita-tipo").value === "recheio";
+  const unidade = el("receita-unidade").value || "g";
+  el("label-receita-rendimento").textContent = recheio
+    ? `Rende quanto (em ${unidade})`
+    : "Rendimento médio (unidades)";
+  el("campo-receita-preco").classList.toggle("hidden", recheio);
+  el("receita-preco-unitario").required = !recheio;
+  el("campo-receita-unidade").classList.toggle("hidden", !recheio);
+  el("nota-receita-recheio").classList.toggle("hidden", !recheio);
+}
+
 function editarReceita(id) {
   const r = state.receitas.find(x => x.id === id);
   if (!r) return;
   el("receita-id-edit").value = r.id;
+  el("receita-tipo").value = r.tipo || "cookie";
+  el("receita-unidade").value = r.unidade || "g";
+  aplicarTipoReceita();
   el("receita-nome").value = r.nome;
   el("receita-rendimento").value = r.rendimento || 1;
   el("receita-preco-unitario").value = Number(r.precoUnitario) || 0;
@@ -106,6 +124,7 @@ function cancelarReceita() {
   el("form-nova-receita").reset();
   el("ingredientes-container").innerHTML = "";
   el("receita-id-edit").value = "";
+  aplicarTipoReceita();
   el("titulo-form-receita").textContent = "Nova receita";
   el("btn-salvar-receita").textContent = "Salvar receita";
   el("btn-cancelar-receita").classList.add("hidden");
@@ -312,9 +331,14 @@ async function excluirInsumo(id) {
   const receitasAfetadas = state.receitas.filter(r =>
     (r.ingredientes || []).some(ing => ing.itemId === id));
 
-  const aviso = receitasAfetadas.length
-    ? `Excluir o insumo "${it?.nome}"?\n\nEle será removido de ${receitasAfetadas.length} receita(s): ${receitasAfetadas.map(r => r.nome).join(", ")}.\n\nO custo dessas receitas vai mudar.`
-    : `Excluir o insumo "${it?.nome}"?`;
+  // Apagar o insumo de um recheio deixa a receita dele sem onde guardar o pote,
+  // e a produção passa a recusar a fornada até a receita ser salva de novo.
+  const doRecheio = receitaDoInsumo(id);
+
+  const partesInsumo = [`Excluir o insumo "${it?.nome}"?`];
+  if (doRecheio) partesInsumo.push(`Ele é o estoque do recheio "${doRecheio.nome}". A receita do recheio fica sem onde guardar o pote até você abri-la e salvar de novo.`);
+  if (receitasAfetadas.length) partesInsumo.push(`Ele será removido de ${receitasAfetadas.length} receita(s): ${receitasAfetadas.map(r => r.nome).join(", ")}.\n\nO custo dessas receitas vai mudar.`);
+  const aviso = partesInsumo.join("\n\n");
 
   const ok = await confirmar(aviso, { titulo: "Excluir", botao: "Excluir" });
   if (!ok) return;
@@ -322,6 +346,13 @@ async function excluirInsumo(id) {
   for (const r of receitasAfetadas) {
     r.ingredientes = (r.ingredientes || []).filter(ing => ing.itemId !== id);
     await salvar("receitas", r);
+  }
+
+  // Solta o vínculo em vez de deixar um id apontando para nada: assim salvar a
+  // receita de novo cria um insumo limpo, sem precisar recadastrar o recheio.
+  if (doRecheio) {
+    doRecheio.itemId = null;
+    await salvar("receitas", doRecheio);
   }
 
   state.itens = state.itens.filter(x => x.id !== id);
@@ -342,6 +373,15 @@ async function excluirReceita(id) {
   const partes = [`Excluir a receita "${r?.nome}"?`];
   if (noFreezer > 0) partes.push(`Os ${noFreezer} cookie(s) desse sabor saem do freezer.`);
   if (pedidosAbertos > 0) partes.push(`${pedidosAbertos} pedido(s) em andamento usam esse sabor e ficarão sem receita.`);
+
+  // O pote na geladeira é real: ele não some porque a receita saiu. O insumo
+  // fica no estoque, apenas deixa de ter como ser produzido de novo.
+  if (ehRecheio(r)) {
+    const cookies = state.receitas.filter(x => !ehRecheio(x)
+      && (x.ingredientes || []).some(ing => ing.itemId === r.itemId));
+    partes.push("O que já está guardado continua no estoque — só não dá mais para produzir mais deste recheio.");
+    if (cookies.length) partes.push(`${cookies.length} receita(s) de cookie usam este recheio: ${cookies.map(x => x.nome).join(", ")}.`);
+  }
 
   const ok = await confirmar(partes.join("\n\n"), { titulo: "Excluir", botao: "Excluir" });
   if (!ok) return;
@@ -391,9 +431,19 @@ async function reverterLancamento(id) {
   const h = state.historico.find(x => x.id === id);
   if (!h) return;
 
-  const aviso = (h.tipo === "compra" && houveMovimentacaoDepois(h))
-    ? "\n\nEste insumo já teve movimentação depois desta compra. A quantidade volta certa, mas o custo médio pode ficar impreciso — confira o valor na aba Cadastros depois de desfazer."
-    : "";
+  // Fornada de recheio é reconhecida pela quantidade negativa: é a linha que
+  // guarda o pote que entrou no estoque. Como a média ponderada não guarda o
+  // custo anterior, desfazer devolve as gramas mas não o preço delas.
+  const dets = h.detalhes_ingredientes || h.detalhesIngredientes || [];
+  const eraRecheio = h.tipo === "producao" && Array.isArray(dets)
+    && dets.some(d => Number(d.quantidade) < 0);
+
+  let aviso = "";
+  if (h.tipo === "compra" && houveMovimentacaoDepois(h)) {
+    aviso = "\n\nEste insumo já teve movimentação depois desta compra. A quantidade volta certa, mas o custo médio pode ficar impreciso — confira o valor na aba Cadastros depois de desfazer.";
+  } else if (eraRecheio) {
+    aviso = "\n\nOs ingredientes voltam e o recheio sai do estoque, mas o custo por grama fica com o valor recalculado — confira na aba Cadastros depois de desfazer.";
+  }
 
   const ok = await confirmar(`Desfazer este lançamento?\n\n${h.texto || ""}${aviso}`, { titulo: "Desfazer", botao: "Desfazer" });
   if (!ok) return;
@@ -423,7 +473,8 @@ async function reverterLancamento(id) {
         await salvar("itens", it);
       }
     } else if (h.tipo === "producao") {
-      const dets = h.detalhes_ingredientes || h.detalhesIngredientes || [];
+      // A lista já traz o recheio produzido com sinal trocado, então somar tudo
+      // devolve os ingredientes e tira o pote do estoque de uma vez só.
       for (const d of dets) {
         const item = state.itens.find(i => i.id === d.itemId || i.id === d.item_id);
         if (item) {
@@ -675,22 +726,41 @@ function configurarFormularios() {
   // com o previsto e acompanha o multiplicador. Assim que você digita um
   // número, o sistema para de sobrescrever e passa a mostrar quanto era o
   // previsto, para a diferença ficar visível antes de confirmar.
+  const receitaEmProducao = () => state.receitas.find(x => x.id === el("produzir-receita-id").value) || null;
+
+  // Cookie sai em unidades inteiras; recheio sai em gramas e aceita quebrado —
+  // um pote que deu 638,5 g é 638,5 g.
   const previstoDaFornada = () => {
-    const r = state.receitas.find(x => x.id === el("produzir-receita-id").value);
+    const r = receitaEmProducao();
     const mult = Number(el("produzir-qtd").value) || 0;
-    return r ? Math.round((Number(r.rendimento) || 0) * mult) : 0;
+    if (!r) return 0;
+    const bruto = (Number(r.rendimento) || 0) * mult;
+    return ehRecheio(r) ? Math.round(bruto * 100) / 100 : Math.round(bruto);
   };
 
   const atualizarRendeu = () => {
     const campo = el("produzir-rendeu");
     if (!campo) return;
+    const r = receitaEmProducao();
+    const recheio = ehRecheio(r);
+    const unidade = recheio ? (r.unidade || "g") : "un";
+
+    // O formulário é o mesmo para os dois, então o que muda é o que ele pergunta.
+    el("label-produzir-rendeu").textContent = recheio
+      ? `Quanto de recheio saiu (${unidade})`
+      : "Quantos cookies saíram";
+    campo.step = recheio ? "any" : "1";
+    el("campo-produzir-freezer").classList.toggle("hidden", recheio);
+    el("nota-produzir-recheio").classList.toggle("hidden", !recheio);
+
     const previsto = previstoDaFornada();
     if (campo.dataset.manual !== "1") campo.value = previsto > 0 ? String(previsto) : "";
 
     const digitado = Number(campo.value);
+    const arredondado = recheio ? digitado : Math.round(digitado);
     const diferente = campo.dataset.manual === "1" && previsto > 0
-      && Number.isFinite(digitado) && Math.round(digitado) !== previsto;
-    el("produzir-rendeu-previsto").textContent = diferente ? `Previsto pela receita: ${previsto} un` : "";
+      && Number.isFinite(digitado) && arredondado !== previsto;
+    el("produzir-rendeu-previsto").textContent = diferente ? `Previsto pela receita: ${previsto} ${unidade}` : "";
     el("produzir-dica-rendeu").classList.toggle("hidden", !diferente);
   };
 
@@ -711,17 +781,29 @@ function configurarFormularios() {
     const mult = Number(el("produzir-qtd").value);
     if (!r || mult <= 0) return;
 
-    // Quantos cookies saíram de verdade. Campo vazio cai no previsto, que é o
-    // comportamento antigo; zero é um número válido — fornada perdida gastou
-    // os ingredientes do mesmo jeito.
-    const previsto = Math.round((Number(r.rendimento) || 0) * mult);
+    const recheio = ehRecheio(r);
+    const unidade = recheio ? (r.unidade || "g") : "un";
+
+    // Sem o insumo vinculado não haveria onde guardar o recheio. Parar aqui,
+    // antes de baixar qualquer coisa, evita gastar ingrediente sem contrapartida.
+    const itemRecheio = recheio ? state.itens.find(i => i.id === r.itemId) : null;
+    if (recheio && !itemRecheio) {
+      toast("Este recheio perdeu o insumo dele no estoque. Abra a receita e salve de novo.", true);
+      return;
+    }
+
+    // Quanto saiu de verdade. Campo vazio cai no previsto, que é o comportamento
+    // antigo; zero é um número válido — fornada perdida gastou os ingredientes
+    // do mesmo jeito. Cookie sai inteiro, recheio sai pesado e aceita quebrado.
+    const previstoBruto = (Number(r.rendimento) || 0) * mult;
+    const previsto = recheio ? Math.round(previstoBruto * 100) / 100 : Math.round(previstoBruto);
     const digitado = el("produzir-rendeu").value;
     const rendeuNum = digitado === "" ? previsto : Number(digitado);
     if (!Number.isFinite(rendeuNum) || rendeuNum < 0) {
-      toast("Informe quantos cookies saíram (zero ou mais).", true);
+      toast(recheio ? `Informe quanto de recheio saiu, em ${unidade} (zero ou mais).` : "Informe quantos cookies saíram (zero ou mais).", true);
       return;
     }
-    const rendeu = Math.round(rendeuNum);
+    const rendeu = recheio ? rendeuNum : Math.round(rendeuNum);
 
     // valida estoque antes de baixar
     const faltantes = [];
@@ -745,7 +827,8 @@ function configurarFormularios() {
     const custoT = calcularCustoReceita(r) * mult;
     // Faturamento potencial da fornada: preço de cada cookie vezes o que saiu
     // de verdade, então uma fornada fraca não promete dinheiro que não existe.
-    const faturamentoG = (Number(r.precoUnitario) || 0) * rendeu;
+    // Recheio não se vende, então não promete nada.
+    const faturamentoG = recheio ? 0 : (Number(r.precoUnitario) || 0) * rendeu;
     const dets = [];
 
     for (const ing of (r.ingredientes || [])) {
@@ -757,10 +840,28 @@ function configurarFormularios() {
       }
     }
 
+    // O recheio pronto entra no estoque como insumo, e é aqui que a variação do
+    // pote vira dinheiro: a mesma média ponderada da entrada de compras divide o
+    // custo dos ingredientes pelo que foi realmente pesado. Pote fraco encarece
+    // o grama, pote cheio barateia, sem ninguém refazer conta.
+    if (recheio) {
+      if (rendeu > 0) {
+        // Rendimento zero não mexe no custo — não há por quantos gramas dividir,
+        // e a divisão por zero mandaria NaN para o estoque inteiro. Os
+        // ingredientes saíram do mesmo jeito: pote perdido é prejuízo.
+        const saldoBase = Math.max(0, itemRecheio.quantidade);
+        itemRecheio.custoMedio = (saldoBase * itemRecheio.custoMedio + custoT) / (saldoBase + rendeu);
+        itemRecheio.quantidade += rendeu;
+        // Quantidade negativa é o que faz o Desfazer, que devolve tudo o que
+        // está nesta lista, tirar do estoque o recheio produzido.
+        dets.push({ itemId: itemRecheio.id, quantidade: -rendeu });
+      }
+    }
+
     // Os cookies produzidos vão direto para o freezer, que é o destino normal.
     // Registrado no próprio lançamento (receita_id + quantidade) para que
     // desfazer a produção também tire os cookies do freezer.
-    const guardar = el("produzir-guardar-freezer")?.checked !== false;
+    const guardar = !recheio && el("produzir-guardar-freezer")?.checked !== false;
     const unidades = guardar ? rendeu : 0;
     if (unidades > 0) {
       state.congelados[rId] = (state.congelados[rId] || 0) + unidades;
@@ -769,22 +870,32 @@ function configurarFormularios() {
     // rendimento_real é quanto saiu do forno; quantidade continua sendo só o
     // que entrou no freezer, porque é isso que o Desfazer devolve. Misturar os
     // dois faria uma produção fora do freezer virar saldo negativo ao desfazer.
-    const nota = rendeu !== previsto && previsto > 0 ? ` (previsto ${previsto})` : "";
+    const nota = rendeu !== previsto && previsto > 0
+      ? ` (previsto ${recheio ? formatarQtd(previsto) + unidade : previsto})`
+      : "";
     const h = {
       id: uid(),
       tipo: "producao",
-      lucro: faturamentoG - custoT,
+      // Fornada de recheio não dá lucro nem prejuízo próprio: o custo dos
+      // ingredientes só mudou de lugar, foi para dentro do insumo. Lançar
+      // prejuízo aqui faria esse mesmo custo ser contado outra vez quando o
+      // cookie usasse o recheio.
+      lucro: recheio ? 0 : faturamentoG - custoT,
       faturamento: faturamentoG,
       detalhes_ingredientes: dets,
       receita_id: rId,
       quantidade: unidades,
       rendimento_real: rendeu,
       multiplicador: mult,
-      texto: rendeu === 0
-        ? `Produção: ${mult}x ${r.nome} — nenhum cookie aproveitado${nota}`
-        : guardar
-          ? `Produção: ${mult}x ${r.nome} — ${rendeu} un no freezer${nota}`
-          : `Produção: ${mult}x ${r.nome} — ${rendeu} un (fora do freezer)${nota}`,
+      texto: recheio
+        ? (rendeu === 0
+          ? `Recheio: ${mult}x ${r.nome} — pote perdido${nota}`
+          : `Recheio: ${mult}x ${r.nome} — ${formatarQtd(rendeu)}${unidade} no estoque${nota}`)
+        : rendeu === 0
+          ? `Produção: ${mult}x ${r.nome} — nenhum cookie aproveitado${nota}`
+          : guardar
+            ? `Produção: ${mult}x ${r.nome} — ${rendeu} un no freezer${nota}`
+            : `Produção: ${mult}x ${r.nome} — ${rendeu} un (fora do freezer)${nota}`,
       quando: new Date().toISOString()
     };
 
@@ -795,15 +906,21 @@ function configurarFormularios() {
     soltarRendeu();
     renderizar();
     toast(
-      rendeu === 0 ? "Produção registrada — nenhum cookie aproveitado."
-        : guardar ? `Produção registrada — ${rendeu} un no freezer!${nota}`
-          : `Produção registrada — ${rendeu} un, fora do freezer.${nota}`
+      recheio
+        ? (rendeu === 0
+          ? "Pote perdido — os ingredientes saíram do estoque."
+          : `Recheio pronto — ${formatarQtd(rendeu)}${unidade} no estoque.${nota}`)
+        : rendeu === 0 ? "Produção registrada — nenhum cookie aproveitado."
+          : guardar ? `Produção registrada — ${rendeu} un no freezer!${nota}`
+            : `Produção registrada — ${rendeu} un, fora do freezer.${nota}`
     );
 
     try {
       await salvar("historico", h);
-      for (const ing of (r.ingredientes || [])) {
-        const item = state.itens.find(i => i.id === ing.itemId);
+      // Percorre o que foi de fato mexido, e não os ingredientes da receita:
+      // no recheio o insumo produzido também entra na lista, e ficaria de fora.
+      for (const d of dets) {
+        const item = state.itens.find(i => i.id === d.itemId);
         if (item) await salvar("itens", item);
       }
       if (unidades > 0) {
@@ -854,21 +971,47 @@ function configurarFormularios() {
     });
     // precoVenda é derivado e só continua sendo gravado para não confundir
     // aparelhos que ainda tenham a versão antiga do sistema instalada.
+    const tipo = el("receita-tipo").value === "recheio" ? "recheio" : "cookie";
+    const recheio = tipo === "recheio";
+    const unidade = recheio ? (el("receita-unidade").value || "g") : "g";
+    const nome = el("receita-nome").value.trim();
     const rendimento = Number(el("receita-rendimento").value) || 1;
-    const precoUnitario = Number(el("receita-preco-unitario").value) || 0;
+    // Recheio não tem preço de venda: ninguém compra um pote de recheio.
+    const precoUnitario = recheio ? 0 : (Number(el("receita-preco-unitario").value) || 0);
     const dados = {
-      nome: el("receita-nome").value.trim(),
+      nome,
+      tipo,
+      unidade,
       rendimento,
       precoUnitario,
       precoVenda: precoUnitario * rendimento,
       ingredientes: ings
     };
-    if (idEdit) {
-      const r = state.receitas.find(x => x.id === idEdit);
-      if (r) {
-        Object.assign(r, dados);
-        await salvar("receitas", r);
+
+    const r = idEdit ? state.receitas.find(x => x.id === idEdit) : null;
+    if (idEdit && !r) return;
+
+    // O insumo do recheio é criado junto com a receita e acompanha o nome dela.
+    // Sem isso você teria que cadastrar o mesmo recheio duas vezes e lembrar de
+    // renomear os dois — e um nome fora de sincronia esconde o pote do estoque.
+    let itemId = r?.itemId || null;
+    let itemVinculado = itemId ? state.itens.find(i => i.id === itemId) : null;
+    if (recheio) {
+      if (!itemVinculado) {
+        itemVinculado = { id: uid(), nome, unidade, custoMedio: 0, estoqueMinimo: 0, quantidade: 0 };
+        state.itens.push(itemVinculado);
+        itemId = itemVinculado.id;
+      } else {
+        itemVinculado.nome = nome;
+        itemVinculado.unidade = unidade;
       }
+      await salvar("itens", itemVinculado);
+    }
+    dados.itemId = recheio ? itemId : null;
+
+    if (r) {
+      Object.assign(r, dados);
+      await salvar("receitas", r);
     } else {
       const novo = { id: uid(), ...dados };
       state.receitas.push(novo);
@@ -876,7 +1019,7 @@ function configurarFormularios() {
     }
     cancelarReceita();
     renderizar();
-    toast("Receita salva!");
+    toast(recheio ? "Recheio salvo! Ele já aparece no estoque." : "Receita salva!");
   });
 
   // --- Encomenda ---
@@ -974,6 +1117,10 @@ function configurarFormularios() {
   el("btn-add-ingrediente").onclick = () => {
     el("ingredientes-container").appendChild(novaLinhaIngrediente());
   };
+
+  el("receita-tipo").onchange = aplicarTipoReceita;
+  el("receita-unidade").onchange = aplicarTipoReceita;
+  aplicarTipoReceita();
 
   // ==========================================
   // FINANCEIRO

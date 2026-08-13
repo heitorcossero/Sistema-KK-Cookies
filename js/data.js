@@ -194,6 +194,8 @@ export async function carregar() {
         if (!(Number(r.precoUnitario) > 0)) {
           r.precoUnitario = (Number(r.precoVenda) / (Number(r.rendimento) || 1)) || 0;
         }
+        if (!r.tipo) r.tipo = "cookie";
+        if (!r.unidade) r.unidade = "g";
       });
     } catch (e) { console.error(e); }
   }
@@ -232,11 +234,16 @@ export async function carregar() {
     if (veio(cl, "clientes")) state.clientes = cl.data.map(c => ({ ...c, ultimaConversa: c.ultima_conversa }));
     // Receita antiga só tem o preço do lote: o preço por cookie sai da divisão,
     // que é exatamente a conta que o sistema fazia antes de existir a coluna.
+    // Receita gravada antes de existir o recheio separado não tem tipo: ela é
+    // de cookie, que era a única coisa que dava para cadastrar.
     if (veio(rec, "receitas")) state.receitas = rec.data.map(r => ({
       ...r,
       precoVenda: Number(r.preco_venda),
       rendimento: Number(r.rendimento),
-      precoUnitario: Number(r.preco_unitario) || (Number(r.preco_venda) / (Number(r.rendimento) || 1)) || 0
+      precoUnitario: Number(r.preco_unitario) || (Number(r.preco_venda) / (Number(r.rendimento) || 1)) || 0,
+      tipo: r.tipo || "cookie",
+      itemId: r.item_id || null,
+      unidade: r.unidade || "g"
     }));
     if (veio(enc, "encomendas")) state.encomendas = enc.data.map(e => ({ ...e, valorTotal: Number(e.valor_total), clienteId: e.cliente_id, dataEntrega: e.data_entrega }));
     if (veio(hist, "historico")) state.historico = hist.data;
@@ -358,6 +365,16 @@ export function calcularCustoReceita(r) {
     const item = state.itens.find(i => i.id === ing.itemId);
     return acc + (Number(ing.quantidade) * (item?.custoMedio || 0));
   }, 0);
+}
+
+// O recheio pronto é um insumo como qualquer outro, e é justamente por isso
+// que o custo, a baixa de estoque e o desfazer continuam funcionando sem saber
+// que ele existe. Estas duas funções são a única ponte entre os dois mundos.
+export const ehRecheio = r => r?.tipo === "recheio";
+
+// A receita que abastece um insumo, quando ele é um recheio produzido aqui.
+export function receitaDoInsumo(itemId) {
+  return state.receitas.find(r => ehRecheio(r) && r.itemId === itemId) || null;
 }
 
 // ============================================================

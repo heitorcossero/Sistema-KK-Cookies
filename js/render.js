@@ -1,5 +1,5 @@
 // Renderização de todas as telas
-import { state, initSupabase, calcularCustoReceita, conexao, totalPendentes, estaOffline } from "./data.js";
+import { state, initSupabase, calcularCustoReceita, ehRecheio, receitaDoInsumo, conexao, totalPendentes, estaOffline } from "./data.js";
 import { MARKUP, CATEGORIAS, nomeCategoria, nomeForma, naturezaCategoria } from "./config.js";
 import { desenharGraficoFaturamento, desenharFluxoCaixa } from "./chart.js";
 import {
@@ -315,7 +315,7 @@ function renderEstoque() {
   lista.innerHTML = itens.map(it => `
     <li class="item-estoque ${it.estoqueMinimo > 0 && it.quantidade <= it.estoqueMinimo ? "alerta-baixo" : ""}">
       <div>
-        <strong class="nome">${escapeHtml(it.nome)}</strong>
+        <strong class="nome">${escapeHtml(it.nome)}${receitaDoInsumo(it.id) ? ' <span class="selo-recheio">recheio</span>' : ""}</strong>
         <small class="item-preco-linha" title="Custo exato usado nos cálculos: ${formatarMoedaExata(it.custoMedio)} por ${escapeHtml(it.unidade)}">${formatarMoedaLonga(it.custoMedio)} por ${escapeHtml(it.unidade)}</small>
         <small class="item-preco-linha total">${formatarMoeda(it.quantidade * it.custoMedio)} em estoque</small>
       </div>
@@ -546,14 +546,44 @@ function renderReceitas() {
     const custoTotal = calcularCustoReceita(r);
     const rend = r.rendimento || 1;
     const custoUnit = custoTotal / rend;
+    const recheio = ehRecheio(r);
+    const unidade = recheio ? (r.unidade || "g") : "un";
+    const real = mediaRealDaReceita(r.id);
+    const linhaReal = real
+      ? ` · nas últimas ${real.fornadas} fornada${real.fornadas > 1 ? "s" : ""} rendeu <strong>${formatarQtd(real.media)} ${unidade}</strong>`
+      : "";
+
+    const botoes = `<div class="btn-row">
+          <button type="button" class="btn-mini" data-action="editar-receita" data-id="${r.id}">Editar</button>
+          <button type="button" class="btn-mini perigo" data-action="excluir-receita" data-id="${r.id}">Excluir</button>
+        </div>`;
+
+    // Recheio não tem preço nem lucro: o dinheiro dele aparece no cookie que o
+    // usa. O que interessa aqui é quanto custa cada grama do pote.
+    if (recheio) {
+      const saldo = state.itens.find(i => i.id === r.itemId);
+      return `<div class="card-receita-edit">
+        <div class="enc-topo" style="margin:0">
+          <div>
+            <h3>${escapeHtml(r.nome)} <span class="selo-recheio">recheio</span></h3>
+            <p class="enc-sub">Rende <strong>${formatarQtd(rend)} ${escapeHtml(unidade)}</strong> por receita${linhaReal}</p>
+          </div>
+          ${botoes}
+        </div>
+
+        <dl class="receita-numeros">
+          <div><dt>Custo do pote</dt><dd>${formatarMoeda(custoTotal)}</dd></div>
+          <div><dt>Custo por ${escapeHtml(unidade)}</dt><dd>${formatarMoedaLonga(custoUnit)}</dd></div>
+          <div><dt>Guardado</dt><dd>${formatarQtd(saldo?.quantidade || 0)} ${escapeHtml(unidade)}</dd></div>
+          <div><dt>Custo real por ${escapeHtml(unidade)}</dt><dd>${formatarMoedaLonga(saldo?.custoMedio || 0)}</dd></div>
+        </dl>
+      </div>`;
+    }
+
     const precoUnit = Number(r.precoUnitario) || 0;
     const lucroUnit = precoUnit - custoUnit;
     const lucroTotal = lucroUnit * rend;
     const suspeito = custoUnit > 20;
-    const real = mediaRealDaReceita(r.id);
-    const linhaReal = real
-      ? ` · nas últimas ${real.fornadas} fornada${real.fornadas > 1 ? "s" : ""} rendeu <strong>${real.media} un</strong>`
-      : "";
 
     return `<div class="card-receita-edit ${suspeito ? "suspeito" : ""}">
       <div class="enc-topo" style="margin:0">
@@ -561,10 +591,7 @@ function renderReceitas() {
           <h3>${escapeHtml(r.nome)}</h3>
           <p class="enc-sub">Rende <strong>${rend} un</strong> · cada cookie por <strong>${formatarMoeda(precoUnit)}</strong>${linhaReal}</p>
         </div>
-        <div class="btn-row">
-          <button type="button" class="btn-mini" data-action="editar-receita" data-id="${r.id}">Editar</button>
-          <button type="button" class="btn-mini perigo" data-action="excluir-receita" data-id="${r.id}">Excluir</button>
-        </div>
+        ${botoes}
       </div>
 
       <dl class="receita-numeros">
@@ -617,6 +644,13 @@ function renderListaCompras() {
   });
 
   const totalNecessario = {};
+  const somar = (itemId, quantidade) => {
+    const item = state.itens.find(i => i.id === itemId);
+    if (!item) return;
+    if (!totalNecessario[item.id]) totalNecessario[item.id] = { nome: item.nome, qtd: 0, unidade: item.unidade };
+    totalNecessario[item.id].qtd += quantidade;
+  };
+
   Object.entries(totalPorSabor).forEach(([recId, totalQtd]) => {
     const rec = state.receitas.find(r => r.id === recId);
     if (!rec) return;
@@ -624,12 +658,22 @@ function renderListaCompras() {
     const realNecessario = Math.max(0, totalQtd - noFreezer);
     if (realNecessario <= 0) return;
     const batches = Math.ceil(realNecessario / (rec.rendimento || 1));
-    (rec.ingredientes || []).forEach(ing => {
-      const item = state.itens.find(i => i.id === ing.itemId);
-      if (!item) return;
-      if (!totalNecessario[item.id]) totalNecessario[item.id] = { nome: item.nome, qtd: 0, unidade: item.unidade };
-      totalNecessario[item.id].qtd += ing.quantidade * batches;
-    });
+    (rec.ingredientes || []).forEach(ing => somar(ing.itemId, ing.quantidade * batches));
+  });
+
+  // Recheio não se compra: ele é feito aqui. Então o que falta de recheio vira
+  // fornadas inteiras de recheio, e o que entra na lista são os ingredientes
+  // dele. Sem isto a lista mandaria comprar um pote em um mercado que não vende.
+  Object.keys(totalNecessario).forEach(itemId => {
+    const receita = receitaDoInsumo(itemId);
+    if (!receita) return;
+    const info = totalNecessario[itemId];
+    const emEstoque = state.itens.find(i => i.id === itemId)?.quantidade || 0;
+    delete totalNecessario[itemId];
+    const falta = info.qtd - emEstoque;
+    if (falta <= 0) return;
+    const potes = Math.ceil(falta / (receita.rendimento || 1));
+    (receita.ingredientes || []).forEach(ing => somar(ing.itemId, ing.quantidade * potes));
   });
 
   const html = Object.entries(totalNecessario).map(([id, info]) => {
@@ -750,14 +794,41 @@ function renderResumo() {
   desenharGraficoFaturamento(el("grafico-faturamento"), state.historico);
 }
 
+// Insumos em dois grupos: o que se compra e o recheio que sai daqui mesmo. A
+// separação existe para o recheio não se perder no meio da farinha na hora de
+// montar a receita do cookie.
+function opcoesDeInsumo({ comRecheios = true, selecionado = null } = {}) {
+  const ordenar = lista => [...lista].sort((a, b) => (a.nome || "").localeCompare(b.nome || ""));
+  const recheios = ordenar(state.itens.filter(i => receitaDoInsumo(i.id)));
+  const comuns = ordenar(state.itens.filter(i => !receitaDoInsumo(i.id)));
+  const existe = selecionado && state.itens.some(i => i.id === selecionado);
+  const opcao = i => `<option value="${i.id}" ${existe && i.id === selecionado ? "selected" : ""}>${escapeHtml(i.nome)}</option>`;
+  let html = `<option value="" ${existe ? "" : "selected"}>Selecione…</option>` + comuns.map(opcao).join("");
+  if (comRecheios && recheios.length) {
+    html += `<optgroup label="Recheios prontos">${recheios.map(opcao).join("")}</optgroup>`;
+  }
+  return html;
+}
+
 export function atualizarSelects() {
-  const itens = [...state.itens].sort((a, b) => (a.nome || "").localeCompare(b.nome || ""));
-  const optItens = '<option value="">Selecione…</option>' + itens.map(i => `<option value="${i.id}">${escapeHtml(i.nome)}</option>`).join("");
-  document.querySelectorAll("#entrada-nome, #saida-manual-id, .ing-select").forEach(s => { const v = s.value; s.innerHTML = optItens; s.value = v; });
+  // Compra é só do que entra pela porta: recheio entra pela panela, na produção.
+  document.querySelectorAll("#entrada-nome").forEach(s => { const v = s.value; s.innerHTML = opcoesDeInsumo({ comRecheios: false }); s.value = v; });
+  // Ajuste manual aceita recheio: é como se corrige a sobra da geladeira.
+  document.querySelectorAll("#saida-manual-id, .ing-select").forEach(s => { const v = s.value; s.innerHTML = opcoesDeInsumo(); s.value = v; });
 
   const receitas = [...state.receitas].sort((a, b) => (a.nome || "").localeCompare(b.nome || ""));
-  const optRec = '<option value="">Selecione…</option>' + receitas.map(r => `<option value="${r.id}">${escapeHtml(r.nome)}</option>`).join("");
-  document.querySelectorAll("#produzir-receita-id, #congelado-receita-id, .enc-prod-select").forEach(s => { const v = s.value; s.innerHTML = optRec; s.value = v; });
+  const cookies = receitas.filter(r => !ehRecheio(r));
+  const recheios = receitas.filter(ehRecheio);
+  const opcao = r => `<option value="${r.id}">${escapeHtml(r.nome)}</option>`;
+
+  // Só cookie se congela e se vende; recheio aparece apenas onde se produz.
+  const optCookies = '<option value="">Selecione…</option>' + cookies.map(opcao).join("");
+  document.querySelectorAll("#congelado-receita-id, .enc-prod-select").forEach(s => { const v = s.value; s.innerHTML = optCookies; s.value = v; });
+
+  const optProduzir = '<option value="">Selecione…</option>'
+    + (recheios.length ? `<optgroup label="Cookies">${cookies.map(opcao).join("")}</optgroup>` : cookies.map(opcao).join(""))
+    + (recheios.length ? `<optgroup label="Recheios">${recheios.map(opcao).join("")}</optgroup>` : "");
+  document.querySelectorAll("#produzir-receita-id").forEach(s => { const v = s.value; s.innerHTML = optProduzir; s.value = v; });
 
   const clientes = [...state.clientes].sort((a, b) => (a.nome || "").localeCompare(b.nome || ""));
   const optCli = '<option value="">Selecione…</option>' + clientes.map(c => `<option value="${c.id}">${escapeHtml(c.nome)}</option>`).join("");
@@ -769,21 +840,17 @@ export function atualizarSelects() {
 // apagado, a linha aparece em branco em vez de escolher o primeiro da lista
 // sem avisar — que era como uma quantidade acabava no insumo errado.
 export function novaLinhaIngrediente(ing = null) {
-  const itens = [...state.itens].sort((a, b) => (a.nome || "").localeCompare(b.nome || ""));
-  const existe = ing && itens.some(i => i.id === ing.itemId);
   const div = document.createElement("div");
   div.className = "enc-linha-row";
-  div.innerHTML = `<select class="ing-select" required>
-    <option value="" ${existe ? "" : "selected"}>Selecione…</option>
-    ${itens.map(i =>
-      `<option value="${i.id}" ${existe && i.id === ing.itemId ? "selected" : ""}>${escapeHtml(i.nome)}</option>`).join("")}</select>
+  div.innerHTML = `<select class="ing-select" required>${opcoesDeInsumo({ selecionado: ing?.itemId })}</select>
     <input type="number" class="ing-qtd" step="any" min="0" placeholder="Qtd" value="${ing ? ing.quantidade : ""}" required />
     <button type="button" class="btn-mini perigo" data-action="remover-linha" aria-label="Remover ingrediente">×</button>`;
   return div;
 }
 
 export function novaLinhaProduto(p = null) {
-  const receitas = [...state.receitas].sort((a, b) => (a.nome || "").localeCompare(b.nome || ""));
+  // Encomenda é de cookie: recheio não é produto de venda.
+  const receitas = [...state.receitas].filter(r => !ehRecheio(r)).sort((a, b) => (a.nome || "").localeCompare(b.nome || ""));
   const existe = p && receitas.some(r => r.id === p.receitaId);
   const div = document.createElement("div");
   div.className = "enc-linha-row";
