@@ -71,7 +71,8 @@ export function desenharGraficoFaturamento(container, historico) {
   if (soma) soma.textContent = total > 0 ? `${formatarMoeda(total)} no período` : "";
 
   if (total <= 0) {
-    container.innerHTML = '<p class="vazio">Nenhuma produção nos últimos 30 dias.<br/>Registre produções na aba <strong>Estoque</strong> para ver o gráfico.</p>';
+    container.innerHTML = '<div class="vazio"><span class="vazio-titulo">Nenhuma produção nos últimos 30 dias</span>' +
+      '<span class="vazio-texto">Registre uma produção na aba <strong>Estoque</strong> e a curva de faturamento começa a desenhar.</span></div>';
     return;
   }
 
@@ -91,11 +92,11 @@ export function desenharGraficoFaturamento(container, historico) {
 
   const svg = svgEl("svg", { viewBox: `0 0 ${W} ${H}`, role: "img", "aria-label": "Faturamento diário dos últimos 30 dias" });
 
-  // gradiente da área
+  // gradiente da área — massa de cookie desbotando para o fundo
   const defs = svgEl("defs", {});
   const grad = svgEl("linearGradient", { id: "grad-faturamento", x1: "0", y1: "0", x2: "0", y2: "1" });
-  grad.appendChild(svgEl("stop", { offset: "0%", "stop-color": "#C1721A", "stop-opacity": "0.38" }));
-  grad.appendChild(svgEl("stop", { offset: "100%", "stop-color": "#C1721A", "stop-opacity": "0" }));
+  grad.appendChild(svgEl("stop", { offset: "0%", "stop-color": "#D2A273", "stop-opacity": "0.34" }));
+  grad.appendChild(svgEl("stop", { offset: "100%", "stop-color": "#D2A273", "stop-opacity": "0" }));
   defs.appendChild(grad);
   svg.appendChild(defs);
 
@@ -103,8 +104,8 @@ export function desenharGraficoFaturamento(container, historico) {
   for (let i = 0; i <= 2; i++) {
     const v = (maxY / 2) * i;
     const y = py(v);
-    svg.appendChild(svgEl("line", { x1: M.esq, y1: y, x2: W - M.dir, y2: y, stroke: "rgba(240,237,232,0.07)", "stroke-width": "1" }));
-    const rotulo = svgEl("text", { x: M.esq - 8, y: y + 3.5, "text-anchor": "end", "font-size": "10", fill: "#8A7768", "font-family": "inherit" });
+    svg.appendChild(svgEl("line", { x1: M.esq, y1: y, x2: W - M.dir, y2: y, stroke: "rgba(239,234,227,0.07)", "stroke-width": "1" }));
+    const rotulo = svgEl("text", { x: M.esq - 10, y: y + 3.5, "text-anchor": "end", "font-size": "10", "font-weight": "600", fill: "#9A887A", "font-family": "inherit" });
     rotulo.textContent = v >= 1000 ? `${(v / 1000).toLocaleString("pt-BR")}k` : v.toLocaleString("pt-BR");
     svg.appendChild(rotulo);
   }
@@ -112,7 +113,7 @@ export function desenharGraficoFaturamento(container, historico) {
   // rótulos do eixo X (semanais)
   for (let i = 0; i < DIAS; i += 7) {
     const d = dias[i].data;
-    const rotulo = svgEl("text", { x: px(i), y: H - 8, "text-anchor": "middle", "font-size": "10", fill: "#8A7768", "font-family": "inherit" });
+    const rotulo = svgEl("text", { x: px(i), y: H - 8, "text-anchor": "middle", "font-size": "10", "font-weight": "600", fill: "#9A887A", "font-family": "inherit" });
     rotulo.textContent = d.toLocaleDateString("pt-BR", { day: "2-digit", month: "2-digit" });
     svg.appendChild(rotulo);
   }
@@ -127,14 +128,14 @@ export function desenharGraficoFaturamento(container, historico) {
   });
   svg.appendChild(area);
 
-  // linha com leve brilho
-  svg.appendChild(svgEl("path", { d: linha, fill: "none", stroke: "#E9A23B", "stroke-width": "5", "stroke-linecap": "round", opacity: "0.16" }));
-  svg.appendChild(svgEl("path", { d: linha, fill: "none", stroke: "#E9A23B", "stroke-width": "2", "stroke-linecap": "round" }));
+  // linha em creme — a cor da marca carrega o dado principal
+  svg.appendChild(svgEl("path", { d: linha, fill: "none", stroke: "#EFEAE3", "stroke-width": "6", "stroke-linecap": "round", "stroke-linejoin": "round", opacity: "0.12" }));
+  svg.appendChild(svgEl("path", { d: linha, fill: "none", stroke: "#EFEAE3", "stroke-width": "2", "stroke-linecap": "round", "stroke-linejoin": "round" }));
 
   // camada de hover: linha-guia + ponto + tooltip
-  const guia = svgEl("line", { x1: 0, y1: M.topo, x2: 0, y2: M.topo + gh, stroke: "rgba(240,237,232,0.25)", "stroke-width": "1", "stroke-dasharray": "3 3", opacity: "0" });
+  const guia = svgEl("line", { x1: 0, y1: M.topo, x2: 0, y2: M.topo + gh, stroke: "rgba(239,234,227,0.28)", "stroke-width": "1", "stroke-dasharray": "3 4", opacity: "0" });
   svg.appendChild(guia);
-  const ponto = svgEl("circle", { cx: 0, cy: 0, r: "4.5", fill: "#E9A23B", stroke: "#131009", "stroke-width": "2", opacity: "0" });
+  const ponto = svgEl("circle", { cx: 0, cy: 0, r: "5", fill: "#EFEAE3", stroke: "#2E2019", "stroke-width": "2.5", opacity: "0" });
   svg.appendChild(ponto);
 
   const tooltip = document.createElement("div");

@@ -5,8 +5,8 @@
   "description": "Gestão de estoque, receitas e encomendas da KK Cookies",
   "start_url": "./index.html",
   "display": "standalone",
-  "background_color": "#131009",
-  "theme_color": "#131009",
+  "background_color": "#150E0B",
+  "theme_color": "#150E0B",
   "icons": [
     {
       "src": "assets/icone-192.png",

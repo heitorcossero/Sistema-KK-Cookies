@@ -21,7 +21,15 @@ async function init() {
   const logado = await verificarSessao();
   if (!logado) return;
 
-  // 3. Abas
+  // 3. Data de hoje, abaixo do título
+  const elData = document.getElementById("topbar-data");
+  if (elData) {
+    elData.textContent = new Intl.DateTimeFormat("pt-BR", {
+      weekday: "long", day: "numeric", month: "long"
+    }).format(new Date());
+  }
+
+  // 4. Abas
   document.querySelectorAll(".tab").forEach(tab => {
     tab.onclick = () => {
       const nome = tab.dataset.tab;
@@ -37,10 +45,10 @@ async function init() {
     };
   });
 
-  // 4. Formulários e botões
+  // 5. Formulários e botões
   configurarAcoes();
 
-  // 5. Dados
+  // 6. Dados
   await carregar();
   renderizar();
 }

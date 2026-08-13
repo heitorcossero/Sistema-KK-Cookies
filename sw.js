@@ -1,4 +1,4 @@
-const CACHE_NAME = 'kk-cookies-v7';
+const CACHE_NAME = 'kk-cookies-v8';
 const ASSETS = [
   './',
   './index.html',
@@ -13,6 +13,7 @@ const ASSETS = [
   './js/main.js',
   './manifest.json',
   './assets/logo-creme.png',
+  './assets/simbolo-creme.png',
   './assets/icone-192.png',
   './assets/icone-512.png'
 ];

@@ -9,13 +9,21 @@ import {
 
 const el = (id) => document.getElementById(id);
 
-// Etapas do pedido, na ordem do fluxo de produção
-const ETAPAS_PEDIDO = [
-  { campo: "pago", rotulo: "Pago", classe: "chip-pago" },
-  { campo: "massaFeita", rotulo: "Massa feita", classe: "" },
-  { campo: "assado", rotulo: "Assado", classe: "" },
-  { campo: "entregue", rotulo: "Entregue", classe: "" }
+// Etapas de produção — esta lista é uma sequência de verdade: a massa vem
+// antes do forno, o forno antes da entrega. É o que a esteira desenha.
+const ETAPAS_PRODUCAO = [
+  { campo: "massaFeita", rotulo: "Massa" },
+  { campo: "assado", rotulo: "Assado" },
+  { campo: "entregue", rotulo: "Entregue" }
 ];
+
+const CHECK = '<svg viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M2.4 6.2l2.4 2.4 4.8-4.8"/></svg>';
+
+const ICONE_WHATSAPP = '<svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M12 2a10 10 0 00-8.6 15l-1.3 4.6 4.8-1.3A10 10 0 1012 2zm0 2a8 8 0 110 16 8 8 0 01-4.2-1.2l-.4-.2-2.4.6.6-2.3-.2-.4A8 8 0 0112 4zm-3 3.6c-.2 0-.5 0-.7.4-.3.4-1 .9-1 2.2s1 2.6 1.2 2.8c.1.2 2 3.2 5 4.3 2.4.9 2.9.7 3.4.7.5-.1 1.6-.7 1.9-1.3.2-.7.2-1.2.1-1.3l-.6-.4-1.6-.8c-.2-.1-.4-.1-.6.1l-.8 1c-.2.2-.3.2-.5.1a6.5 6.5 0 01-3.3-2.9c-.2-.3 0-.5.1-.6l.5-.5.3-.6v-.5l-.8-1.9c-.2-.5-.4-.4-.6-.5z"/></svg>';
+
+// Estado vazio: diz o que está faltando e qual é o próximo passo.
+const vazio = (titulo, texto) =>
+  `<div class="vazio"><span class="vazio-titulo">${titulo}</span><span class="vazio-texto">${texto}</span></div>`;
 
 export function renderizar() {
   try {
@@ -38,7 +46,10 @@ function renderSyncStatus() {
   const s = initSupabase();
   const status = el("sync-status");
   if (status) {
-    status.textContent = s ? "Sincronizado com a nuvem" : `Modo local — ${getNomeMesAtual()}`;
+    status.textContent = s ? "Sincronizado" : "Modo local";
+    status.title = s
+      ? "Seus dados estão salvos na nuvem."
+      : "Sem conexão com a nuvem — os dados ficam neste aparelho.";
     status.classList.toggle("ok", !!s);
   }
 }
@@ -49,9 +60,15 @@ function renderAlertas() {
   const baixos = state.itens.filter(i => i.estoqueMinimo > 0 && i.quantidade <= i.estoqueMinimo);
   box.classList.toggle("hidden", baixos.length === 0);
   box.innerHTML = baixos.length
-    ? `<h3>Insumos em nível crítico</h3><ul>${baixos.map(i =>
-        `<li>${escapeHtml(i.nome)}: ${formatarQtd(i.quantidade)} ${escapeHtml(i.unidade)} (mínimo: ${formatarQtd(i.estoqueMinimo)})</li>`
-      ).join("")}</ul>`
+    ? `<span class="alerta-icone" aria-hidden="true">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M10.3 4.3L2.6 17.6A2 2 0 004.3 20.6h15.4a2 2 0 001.7-3L13.7 4.3a2 2 0 00-3.4 0zM12 9.5v4M12 17h.01"/></svg>
+      </span>
+      <div>
+        <h3>${baixos.length === 1 ? "1 insumo no nível crítico" : `${baixos.length} insumos no nível crítico`}</h3>
+        <ul>${baixos.map(i =>
+          `<li>${escapeHtml(i.nome)} — restam ${formatarQtd(i.quantidade)}${escapeHtml(i.unidade)}, o mínimo é ${formatarQtd(i.estoqueMinimo)}${escapeHtml(i.unidade)}</li>`
+        ).join("")}</ul>
+      </div>`
     : "";
 }
 
@@ -63,11 +80,12 @@ function renderEstoque() {
     <li class="item-estoque ${it.estoqueMinimo > 0 && it.quantidade <= it.estoqueMinimo ? "alerta-baixo" : ""}">
       <div>
         <strong class="nome">${escapeHtml(it.nome)}</strong>
-        <small class="item-preco-linha">Custo: ${formatarMoedaLonga(it.custoMedio)} / ${escapeHtml(it.unidade)}</small>
-        <small class="item-preco-linha total">Total: ${formatarMoeda(it.quantidade * it.custoMedio)}</small>
+        <small class="item-preco-linha">${formatarMoedaLonga(it.custoMedio)} por ${escapeHtml(it.unidade)}</small>
+        <small class="item-preco-linha total">${formatarMoeda(it.quantidade * it.custoMedio)} em estoque</small>
       </div>
       <span class="saldo">${formatarQtd(it.quantidade)} ${escapeHtml(it.unidade)}</span>
-    </li>`).join("") || '<p class="vazio">Nenhum insumo ainda. Cadastre o primeiro na aba <strong>Cadastros</strong>.</p>';
+    </li>`).join("")
+    || vazio("Nenhum insumo cadastrado", "Cadastre farinha, açúcar e chocolate na aba <strong>Cadastros</strong> para o estoque começar a contar.");
 }
 
 function renderCongelados() {
@@ -77,15 +95,19 @@ function renderCongelados() {
   lista.innerHTML = itens.length
     ? itens.map(([recId, qtd]) => {
         const receita = state.receitas.find(r => r.id === recId);
-        return `<li class="item-estoque"><div><strong class="nome">${escapeHtml(receita?.nome || "Cookie")}</strong></div><span class="saldo">${qtd} un</span></li>`;
+        return `<li class="item-estoque">
+          <div><strong class="nome">${escapeHtml(receita?.nome || "Cookie")}</strong></div>
+          <span class="saldo">${qtd} un</span>
+        </li>`;
       }).join("")
-    : '<p class="vazio">Freezer vazio — nada congelado por aqui.</p>';
+    : vazio("Freezer vazio", "Guarde cookies prontos no formulário <strong>Freezer</strong> e eles aparecem aqui.");
 }
 
 function renderClientes() {
   const lista = el("lista-clientes");
   if (!lista) return;
   const clientes = [...state.clientes].sort((a, b) => new Date(a.ultimaConversa || 0) - new Date(b.ultimaConversa || 0));
+
   lista.innerHTML = clientes.map(c => {
     const pedidosCli = state.encomendas.filter(e => e.clienteId === c.id);
     const ltv = pedidosCli.reduce((acc, p) => acc + (p.valorTotal || 0), 0);
@@ -96,29 +118,38 @@ function renderClientes() {
         const r = state.receitas.find(rec => rec.id === pr.receitaId);
         return `${pr.quantidade}x ${escapeHtml(r?.nome || "Cookie")}`;
       }).join(", ");
-      return `<small style="display:block; margin-bottom:0.3rem">• <strong>${formatarDataCurta(p.dataEntrega)}</strong>: ${prods} (${formatarMoeda(p.valorTotal)})</small>`;
-    }).join("") || '<small class="muted-small">Nenhum pedido realizado.</small>';
+      return `<small><strong>${formatarDataCurta(p.dataEntrega)}</strong> · ${prods} · ${formatarMoeda(p.valorTotal)}</small>`;
+    }).join("") || "<small>Nenhum pedido registrado ainda.</small>";
 
     return `<article class="card-encomenda">
-      <div class="flex-row entre">
-        <h3>${escapeHtml(c.nome)}</h3>
+      <div class="enc-topo">
+        <div>
+          <h3>${escapeHtml(c.nome)}</h3>
+          <p class="enc-sub">Última conversa em <strong>${formatarDataCurta(c.ultimaConversa)}</strong></p>
+        </div>
         <div class="btn-row">
+          ${fone ? `<a href="https://wa.me/${fone}" target="_blank" rel="noopener" class="link-whatsapp">${ICONE_WHATSAPP} WhatsApp</a>` : ""}
           <button type="button" class="btn-mini" data-action="editar-cliente" data-id="${c.id}">Editar</button>
           <button type="button" class="btn-mini perigo" data-action="excluir-cliente" data-id="${c.id}">Excluir</button>
         </div>
       </div>
-      <p class="enc-meta"><strong>Notas:</strong> ${escapeHtml(c.conversa || "Sem observações")}</p>
-      <p class="enc-meta"><strong>Total já comprado:</strong> <span class="enc-total">${formatarMoeda(ltv)}</span></p>
-      <div class="flex-row entre" style="margin-top:0.5rem">
-        ${fone ? `<a href="https://wa.me/${fone}" target="_blank" rel="noopener" class="link-whatsapp">WhatsApp</a>` : "<span></span>"}
-        <small class="muted-small" style="margin:0">Última conversa: ${formatarDataCurta(c.ultimaConversa)}</small>
+
+      <p class="cliente-notas">${escapeHtml(c.conversa || "Sem observações registradas.")}</p>
+
+      <div class="pedido-detalhes">
+        <div class="pedido-linha">
+          <span>Total já comprado</span>
+          <span class="enc-total">${formatarMoeda(ltv)}</span>
+        </div>
       </div>
-      <details class="cliente-historico" style="margin-top:0.7rem">
+
+      <details class="cliente-historico">
         <summary>Histórico de pedidos (${pedidosCli.length})</summary>
         <div class="pedidos-mini">${pedidosHtml}</div>
       </details>
     </article>`;
-  }).join("") || '<p class="vazio">Nenhum cliente ainda. Cadastre o primeiro no formulário acima.</p>';
+  }).join("")
+    || vazio("Nenhum cliente cadastrado", "Cadastre o primeiro no formulário acima para acompanhar conversas e histórico de compras.");
 }
 
 // Ícones do extrato, por tipo de movimentação
@@ -165,13 +196,13 @@ function renderHistorico() {
   const listaEstoque = el("lista-historico-estoque");
   if (listaEstoque) {
     listaEstoque.innerHTML = state.historico.slice(0, 15).map(itemHtml).join("")
-      || '<p class="vazio">Nenhum lançamento ainda.</p>';
+      || vazio("Nenhum lançamento ainda", "Registre uma compra ou uma produção e o movimento aparece aqui.");
   }
 
   const listaResumo = el("lista-historico-resumo");
   if (listaResumo) {
     listaResumo.innerHTML = state.historico.slice(0, 100).map(itemHtml).join("")
-      || '<p class="vazio">Nenhuma movimentação registrada.</p>';
+      || vazio("Nenhuma movimentação registrada", "Tudo o que entrar ou sair do estoque fica listado aqui, com opção de desfazer.");
   }
 }
 
@@ -187,29 +218,49 @@ function cardEncomenda(e) {
     const rec = state.receitas.find(r => r.id === p.receitaId);
     const noFreezer = state.congelados[p.receitaId] || 0;
     const falta = Math.max(0, p.quantidade - noFreezer);
-    if (falta === 0) {
-      return `<div class="pedido-linha pronto">• ${p.quantidade} un ${escapeHtml(rec?.nome || "Cookie")} <strong>(pronto no freezer)</strong></div>`;
-    }
-    return `<div class="pedido-linha">• ${p.quantidade} un ${escapeHtml(rec?.nome || "Cookie")} <span class="falta">(produzir: ${falta} un · freezer: ${noFreezer} un)</span></div>`;
+    const situacao = falta === 0
+      ? "pronto no freezer"
+      : `<span class="falta">produzir ${falta} un</span> · freezer ${noFreezer} un`;
+    return `<div class="pedido-linha ${falta === 0 ? "pronto" : ""}">
+      <span><span class="qtd">${p.quantidade} un</span> ${escapeHtml(rec?.nome || "Cookie")}</span>
+      <span class="situacao">${situacao}</span>
+    </div>`;
   }).join("");
 
-  const chips = ETAPAS_PEDIDO.map(et => `
-    <label class="chip ${et.classe} ${st[et.campo] ? "on" : ""}">
+  // A esteira: nós preenchidos até a etapa concluída, o próximo passo destacado.
+  const proxima = ETAPAS_PRODUCAO.find(et => !st[et.campo])?.campo;
+  const esteira = ETAPAS_PRODUCAO.map(et => `
+    <label class="etapa ${st[et.campo] ? "feito" : ""} ${et.campo === proxima ? "proximo" : ""}">
       <input type="checkbox" data-action="status-pedido" data-id="${e.id}" data-campo="${et.campo}" ${st[et.campo] ? "checked" : ""} />
-      ${st[et.campo] ? "✓ " : ""}${et.rotulo}
+      <span class="no" aria-hidden="true">${CHECK}</span>
+      <span class="etapa-rotulo">${et.rotulo}</span>
     </label>`).join("");
 
   return `<article class="card-encomenda ${st.entregue ? "entregue" : ""}">
-    <div class="flex-row entre">
-      <h3>${escapeHtml(e.titulo || "Pedido")} — ${escapeHtml(cliente?.nome || "Cliente")}</h3>
+    <div class="enc-topo">
+      <div>
+        <h3>${escapeHtml(e.titulo || "Pedido")}</h3>
+        <p class="enc-sub">${escapeHtml(cliente?.nome || "Cliente")} · entrega em <strong>${formatarDataCurta(e.dataEntrega)}</strong></p>
+      </div>
       <div class="btn-row">
+        <label class="selo-pago ${st.pago ? "on" : ""}">
+          <input type="checkbox" data-action="status-pedido" data-id="${e.id}" data-campo="pago" ${st.pago ? "checked" : ""} />
+          ${st.pago ? "Pago" : "A receber"}
+        </label>
         <button type="button" class="btn-mini" data-action="editar-encomenda" data-id="${e.id}">Editar</button>
         <button type="button" class="btn-mini perigo" data-action="excluir-encomenda" data-id="${e.id}">Excluir</button>
       </div>
     </div>
+
     <div class="pedido-detalhes">${itensHtml}</div>
-    <p class="enc-meta">Entrega: <strong>${formatarDataCurta(e.dataEntrega)}</strong> · Total: <span class="enc-total">${formatarMoeda(e.valorTotal)}</span></p>
-    <div class="status-chips">${chips}</div>
+
+    <div class="enc-rodape">
+      <div class="pipeline">${esteira}</div>
+      <div class="enc-valor">
+        <span class="rotulo-valor">Total</span>
+        <span class="valor">${formatarMoeda(e.valorTotal)}</span>
+      </div>
+    </div>
   </article>`;
 }
 
@@ -222,12 +273,12 @@ function renderEncomendas() {
   const entregues = ordenadas.filter(e => statusPedido(e).entregue);
 
   lista.innerHTML = andamento.map(cardEncomenda).join("")
-    || '<p class="vazio">Nenhum pedido em andamento. Forno tranquilo por enquanto!</p>';
+    || vazio("Nenhum pedido em andamento", "Forno livre. Registre um pedido no formulário acima para acompanhar a produção.");
 
   const listaConcluidas = el("lista-encomendas-concluidas");
   if (listaConcluidas) {
     listaConcluidas.innerHTML = entregues.map(cardEncomenda).join("")
-      || '<p class="vazio">Nenhum pedido entregue ainda.</p>';
+      || vazio("Nenhum pedido entregue", "Assim que marcar um pedido como entregue ele fica guardado aqui.");
   }
   const resumoConcluidos = el("resumo-concluidos");
   if (resumoConcluidos) resumoConcluidos.textContent = `Pedidos entregues (${entregues.length})`;
@@ -245,19 +296,28 @@ function renderReceitas() {
     const suspeito = custoUnit > 20;
 
     return `<div class="card-receita-edit ${suspeito ? "suspeito" : ""}">
-      <div class="flex-row entre">
-        <h3>${escapeHtml(r.nome)}</h3>
+      <div class="enc-topo" style="margin:0">
+        <div>
+          <h3>${escapeHtml(r.nome)}</h3>
+          <p class="enc-sub">Rende <strong>${rend} un</strong> · vende por <strong>${formatarMoeda(r.precoVenda)}</strong></p>
+        </div>
         <div class="btn-row">
           <button type="button" class="btn-mini" data-action="editar-receita" data-id="${r.id}">Editar</button>
           <button type="button" class="btn-mini perigo" data-action="excluir-receita" data-id="${r.id}">Excluir</button>
         </div>
       </div>
-      <p class="muted-small" style="margin:0.3rem 0 0">Custo total: ${formatarMoeda(custoTotal)} · <span class="linha-lucro">Lucro total: ${formatarMoeda(lucroTotal)}</span></p>
-      <p class="muted-small" style="margin:0.15rem 0 0">Custo unitário: ${formatarMoeda(custoUnit)} · <span class="linha-lucro">Lucro unitário: ${formatarMoeda(lucroUnit)}</span></p>
-      <p class="muted-small" style="margin:0.15rem 0 0">Rendimento: ${rend} un · Venda total: ${formatarMoeda(r.precoVenda)}</p>
-      ${suspeito ? '<p class="aviso-suspeito">Custo unitário muito alto — confira se as quantidades da receita e o custo dos insumos estão na unidade certa.</p>' : ""}
+
+      <dl class="receita-numeros">
+        <div><dt>Custo total</dt><dd>${formatarMoeda(custoTotal)}</dd></div>
+        <div><dt>Custo por un</dt><dd>${formatarMoeda(custoUnit)}</dd></div>
+        <div><dt>Lucro total</dt><dd class="${lucroTotal < 0 ? "negativo" : "lucro"}">${formatarMoeda(lucroTotal)}</dd></div>
+        <div><dt>Lucro por un</dt><dd class="${lucroUnit < 0 ? "negativo" : "lucro"}">${formatarMoeda(lucroUnit)}</dd></div>
+      </dl>
+
+      ${suspeito ? '<p class="aviso-suspeito">Custo unitário acima de R$ 20. Confira se as quantidades da receita e o custo dos insumos estão na mesma unidade.</p>' : ""}
     </div>`;
-  }).join("") || '<p class="vazio">Nenhuma receita ainda. Crie a primeira no formulário acima.</p>';
+  }).join("")
+    || vazio("Nenhuma receita cadastrada", "Crie a primeira no formulário acima para calcular custo, lucro e lista de compras.");
 }
 
 function renderInsumosTabela() {
@@ -265,14 +325,14 @@ function renderInsumosTabela() {
   if (!container) return;
   const itens = [...state.itens].sort((a, b) => (a.nome || "").localeCompare(b.nome || ""));
   if (!itens.length) {
-    container.innerHTML = '<p class="vazio">Nenhum insumo cadastrado.</p>';
+    container.innerHTML = vazio("Nenhum insumo cadastrado", "Os insumos criados ao lado aparecem aqui para ajuste rápido de custo.");
     return;
   }
-  container.innerHTML = `<table class="tabela-info"><thead><tr><th>Insumo</th><th>Custo (R$)</th><th>Ações</th></tr></thead><tbody>` +
+  container.innerHTML = `<table class="tabela-info"><thead><tr><th>Insumo</th><th>Custo por unidade</th><th>Ações</th></tr></thead><tbody>` +
     itens.map(it => `<tr>
       <td>${escapeHtml(it.nome)}</td>
-      <td><input type="number" step="any" min="0" value="${it.custoMedio}" data-action="custo-insumo" data-id="${it.id}" aria-label="Custo do insumo" /></td>
-      <td><div class="btn-row" style="margin:0">
+      <td><input type="number" step="any" min="0" value="${it.custoMedio}" data-action="custo-insumo" data-id="${it.id}" aria-label="Custo por unidade de ${escapeHtml(it.nome)}" /></td>
+      <td><div class="btn-row">
         <button type="button" class="btn-mini" data-action="editar-insumo" data-id="${it.id}">Editar</button>
         <button type="button" class="btn-mini perigo" data-action="excluir-insumo" data-id="${it.id}">Excluir</button>
       </div></td>
@@ -311,10 +371,17 @@ function renderListaCompras() {
     const itemEstoque = state.itens.find(i => i.id === id);
     const falta = Math.max(0, info.qtd - (itemEstoque?.quantidade || 0));
     if (falta <= 0) return "";
-    return `<div class="lista-compras-item">• <strong>${escapeHtml(info.nome)}</strong>: precisa de ${formatarQtd(info.qtd)}${escapeHtml(info.unidade)} <span class="falta">(falta ${formatarQtd(falta)}${escapeHtml(info.unidade)})</span></div>`;
+    return `<div class="lista-compras-item">
+      <span>
+        <strong>${escapeHtml(info.nome)}</strong>
+        <span class="precisa">precisa de ${formatarQtd(info.qtd)}${escapeHtml(info.unidade)}</span>
+      </span>
+      <span class="falta">comprar ${formatarQtd(falta)}${escapeHtml(info.unidade)}</span>
+    </div>`;
   }).filter(Boolean).join("");
 
-  container.innerHTML = html || '<p class="vazio">Estoque e freezer dão conta de todos os pedidos. <strong>Nada a comprar!</strong></p>';
+  container.innerHTML = html
+    || vazio("Nada a comprar", "Estoque e freezer dão conta de todos os pedidos em andamento.");
 }
 
 function renderResumo() {
@@ -344,7 +411,7 @@ function renderResumo() {
   const elP = el("lucro-markup-estoque");
   if (elP) elP.textContent = formatarMoeda(vEstoque * MARKUP);
   const elHintMarkup = el("hint-markup");
-  if (elHintMarkup) elHintMarkup.textContent = `Lucro estimado (markup ${MARKUP})`;
+  if (elHintMarkup) elHintMarkup.textContent = `Lucro estimado com markup ${MARKUP}`;
 
   // 3. Média de cookies por pedido (geral)
   let totalCookies = 0;
@@ -360,7 +427,7 @@ function renderResumo() {
 
   // 4. Sabores mais pedidos NO MÊS ATUAL (usa a data de entrega; sem data, usa a de criação)
   const titulo = el("titulo-desempenho");
-  if (titulo) titulo.textContent = `Sabores mais pedidos — ${getNomeMesAtual()}`;
+  if (titulo) titulo.textContent = `Sabores mais pedidos em ${getNomeMesAtual()}`;
 
   const sabores = {};
   state.encomendas
@@ -385,7 +452,7 @@ function renderResumo() {
             </div>
             <div class="sabor-trilha"><div class="sabor-barra" style="width:${Math.max(4, (qtd / maxQtd) * 100)}%"></div></div>
           </div>`).join("")
-      : '<p class="vazio">Nenhum pedido com entrega neste mês ainda.</p>';
+      : vazio("Nenhum pedido neste mês", "O ranking usa a data de entrega dos pedidos do mês corrente.");
   }
 
   // 5. Gráfico de faturamento (últimos 30 dias)
@@ -394,15 +461,15 @@ function renderResumo() {
 
 export function atualizarSelects() {
   const itens = [...state.itens].sort((a, b) => (a.nome || "").localeCompare(b.nome || ""));
-  const optItens = '<option value="">-- Selecione --</option>' + itens.map(i => `<option value="${i.id}">${escapeHtml(i.nome)}</option>`).join("");
+  const optItens = '<option value="">Selecione…</option>' + itens.map(i => `<option value="${i.id}">${escapeHtml(i.nome)}</option>`).join("");
   document.querySelectorAll("#entrada-nome, #saida-manual-id, .ing-select").forEach(s => { const v = s.value; s.innerHTML = optItens; s.value = v; });
 
   const receitas = [...state.receitas].sort((a, b) => (a.nome || "").localeCompare(b.nome || ""));
-  const optRec = '<option value="">-- Selecione --</option>' + receitas.map(r => `<option value="${r.id}">${escapeHtml(r.nome)}</option>`).join("");
+  const optRec = '<option value="">Selecione…</option>' + receitas.map(r => `<option value="${r.id}">${escapeHtml(r.nome)}</option>`).join("");
   document.querySelectorAll("#produzir-receita-id, #congelado-receita-id, .enc-prod-select").forEach(s => { const v = s.value; s.innerHTML = optRec; s.value = v; });
 
   const clientes = [...state.clientes].sort((a, b) => (a.nome || "").localeCompare(b.nome || ""));
-  const optCli = '<option value="">-- Selecione --</option>' + clientes.map(c => `<option value="${c.id}">${escapeHtml(c.nome)}</option>`).join("");
+  const optCli = '<option value="">Selecione…</option>' + clientes.map(c => `<option value="${c.id}">${escapeHtml(c.nome)}</option>`).join("");
   document.querySelectorAll("#enc-cliente-select").forEach(s => { const v = s.value; s.innerHTML = optCli; s.value = v; });
 }
 
@@ -414,7 +481,7 @@ export function novaLinhaIngrediente(ing = null) {
   div.innerHTML = `<select class="ing-select" required>${itens.map(i =>
       `<option value="${i.id}" ${ing && i.id === ing.itemId ? "selected" : ""}>${escapeHtml(i.nome)}</option>`).join("")}</select>
     <input type="number" class="ing-qtd" step="any" min="0" placeholder="Qtd" value="${ing ? ing.quantidade : ""}" required />
-    <button type="button" class="btn-mini perigo" data-action="remover-linha">X</button>`;
+    <button type="button" class="btn-mini perigo" data-action="remover-linha" aria-label="Remover ingrediente">×</button>`;
   return div;
 }
 
@@ -425,6 +492,6 @@ export function novaLinhaProduto(p = null) {
   div.innerHTML = `<select class="enc-prod-select" required>${receitas.map(r =>
       `<option value="${r.id}" ${p && r.id === p.receitaId ? "selected" : ""}>${escapeHtml(r.nome)}</option>`).join("")}</select>
     <input type="number" class="enc-prod-qtd" step="1" min="1" placeholder="Qtd" value="${p ? p.quantidade : ""}" required />
-    <button type="button" class="btn-mini perigo" data-action="remover-linha">X</button>`;
+    <button type="button" class="btn-mini perigo" data-action="remover-linha" aria-label="Remover produto">×</button>`;
   return div;
 }
