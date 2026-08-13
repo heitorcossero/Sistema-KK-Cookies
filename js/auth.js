@@ -20,7 +20,8 @@ export async function verificarSessao() {
     const { data: { session } } = await s.auth.getSession();
     if (session) {
       document.getElementById("auth-container").style.display = "none";
-      document.getElementById("main-app").style.display = "block";
+      // limpa o display inline para o CSS assumir (block no celular, grid no desktop)
+      document.getElementById("main-app").style.display = "";
       return true;
     }
   } catch (err) { console.error(err); }

@@ -186,12 +186,13 @@ body {
 
 .tab:focus-visible { outline: 2px solid var(--caramelo); outline-offset: 2px; }
 
-/* desktop: trilho lateral de ícones */
+/* desktop: trilho lateral de ícones em altura cheia */
 @media (min-width: 900px) {
   .tabs {
     position: sticky;
     top: 1.25rem;
     align-self: start;
+    height: calc(100vh - 2.5rem);
     flex-direction: column;
     justify-content: flex-start;
     gap: 0.5rem;
@@ -199,7 +200,7 @@ body {
     border: 1px solid var(--borda);
     border-radius: 22px;
     box-shadow: var(--sombra);
-    padding: 0.8rem 0.7rem;
+    padding: 0.9rem 0.7rem;
     margin-top: 1.25rem;
     backdrop-filter: none;
   }
