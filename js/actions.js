@@ -92,7 +92,7 @@ function editarReceita(id) {
   el("receita-id-edit").value = r.id;
   el("receita-nome").value = r.nome;
   el("receita-rendimento").value = r.rendimento || 1;
-  el("receita-preco-venda").value = r.precoVenda;
+  el("receita-preco-unitario").value = Number(r.precoUnitario) || 0;
   const container = el("ingredientes-container");
   container.innerHTML = "";
   (r.ingredientes || []).forEach(ing => container.appendChild(novaLinhaIngrediente(ing)));
@@ -670,7 +670,39 @@ function configurarFormularios() {
     toast("Freezer atualizado!");
   });
 
-  el("btn-meia-receita").onclick = () => { el("produzir-qtd").value = 0.5; };
+  // --- Produção: quantos cookies saíram ---
+  // O rendimento da receita é só uma média, então o campo já vem preenchido
+  // com o previsto e acompanha o multiplicador. Assim que você digita um
+  // número, o sistema para de sobrescrever e passa a mostrar quanto era o
+  // previsto, para a diferença ficar visível antes de confirmar.
+  const previstoDaFornada = () => {
+    const r = state.receitas.find(x => x.id === el("produzir-receita-id").value);
+    const mult = Number(el("produzir-qtd").value) || 0;
+    return r ? Math.round((Number(r.rendimento) || 0) * mult) : 0;
+  };
+
+  const atualizarRendeu = () => {
+    const campo = el("produzir-rendeu");
+    if (!campo) return;
+    const previsto = previstoDaFornada();
+    if (campo.dataset.manual !== "1") campo.value = previsto > 0 ? String(previsto) : "";
+
+    const digitado = Number(campo.value);
+    const diferente = campo.dataset.manual === "1" && previsto > 0
+      && Number.isFinite(digitado) && Math.round(digitado) !== previsto;
+    el("produzir-rendeu-previsto").textContent = diferente ? `Previsto pela receita: ${previsto} un` : "";
+    el("produzir-dica-rendeu").classList.toggle("hidden", !diferente);
+  };
+
+  const soltarRendeu = () => { delete el("produzir-rendeu").dataset.manual; atualizarRendeu(); };
+
+  // Trocar de sabor é trocar de contexto: o número da fornada anterior não
+  // vale mais, então o campo volta a seguir o previsto.
+  el("produzir-receita-id").onchange = soltarRendeu;
+  el("produzir-qtd").oninput = atualizarRendeu;
+  el("produzir-rendeu").oninput = () => { el("produzir-rendeu").dataset.manual = "1"; atualizarRendeu(); };
+  el("btn-rendeu-previsto").onclick = soltarRendeu;
+  el("btn-meia-receita").onclick = () => { el("produzir-qtd").value = 0.5; atualizarRendeu(); };
 
   // --- Produção ---
   aoEnviar("form-produzir", async (e) => {
@@ -678,6 +710,18 @@ function configurarFormularios() {
     const r = state.receitas.find(x => x.id === rId);
     const mult = Number(el("produzir-qtd").value);
     if (!r || mult <= 0) return;
+
+    // Quantos cookies saíram de verdade. Campo vazio cai no previsto, que é o
+    // comportamento antigo; zero é um número válido — fornada perdida gastou
+    // os ingredientes do mesmo jeito.
+    const previsto = Math.round((Number(r.rendimento) || 0) * mult);
+    const digitado = el("produzir-rendeu").value;
+    const rendeuNum = digitado === "" ? previsto : Number(digitado);
+    if (!Number.isFinite(rendeuNum) || rendeuNum < 0) {
+      toast("Informe quantos cookies saíram (zero ou mais).", true);
+      return;
+    }
+    const rendeu = Math.round(rendeuNum);
 
     // valida estoque antes de baixar
     const faltantes = [];
@@ -699,7 +743,9 @@ function configurarFormularios() {
     }
 
     const custoT = calcularCustoReceita(r) * mult;
-    const faturamentoG = (Number(r.precoVenda) || 0) * mult;
+    // Faturamento potencial da fornada: preço de cada cookie vezes o que saiu
+    // de verdade, então uma fornada fraca não promete dinheiro que não existe.
+    const faturamentoG = (Number(r.precoUnitario) || 0) * rendeu;
     const dets = [];
 
     for (const ing of (r.ingredientes || [])) {
@@ -715,11 +761,15 @@ function configurarFormularios() {
     // Registrado no próprio lançamento (receita_id + quantidade) para que
     // desfazer a produção também tire os cookies do freezer.
     const guardar = el("produzir-guardar-freezer")?.checked !== false;
-    const unidades = guardar ? Math.round((Number(r.rendimento) || 0) * mult) : 0;
+    const unidades = guardar ? rendeu : 0;
     if (unidades > 0) {
       state.congelados[rId] = (state.congelados[rId] || 0) + unidades;
     }
 
+    // rendimento_real é quanto saiu do forno; quantidade continua sendo só o
+    // que entrou no freezer, porque é isso que o Desfazer devolve. Misturar os
+    // dois faria uma produção fora do freezer virar saldo negativo ao desfazer.
+    const nota = rendeu !== previsto && previsto > 0 ? ` (previsto ${previsto})` : "";
     const h = {
       id: uid(),
       tipo: "producao",
@@ -728,9 +778,13 @@ function configurarFormularios() {
       detalhes_ingredientes: dets,
       receita_id: rId,
       quantidade: unidades,
-      texto: unidades > 0
-        ? `Produção: ${mult}x ${r.nome} — ${unidades} un no freezer`
-        : `Produção: ${mult}x ${r.nome}`,
+      rendimento_real: rendeu,
+      multiplicador: mult,
+      texto: rendeu === 0
+        ? `Produção: ${mult}x ${r.nome} — nenhum cookie aproveitado${nota}`
+        : guardar
+          ? `Produção: ${mult}x ${r.nome} — ${rendeu} un no freezer${nota}`
+          : `Produção: ${mult}x ${r.nome} — ${rendeu} un (fora do freezer)${nota}`,
       quando: new Date().toISOString()
     };
 
@@ -738,8 +792,13 @@ function configurarFormularios() {
     state.historico.unshift(h);
     e.target.reset();
     el("produzir-qtd").value = 1;
+    soltarRendeu();
     renderizar();
-    toast(unidades > 0 ? `Produção registrada — ${unidades} un no freezer!` : "Produção registrada!");
+    toast(
+      rendeu === 0 ? "Produção registrada — nenhum cookie aproveitado."
+        : guardar ? `Produção registrada — ${rendeu} un no freezer!${nota}`
+          : `Produção registrada — ${rendeu} un, fora do freezer.${nota}`
+    );
 
     try {
       await salvar("historico", h);
@@ -793,10 +852,15 @@ function configurarFormularios() {
       // linha sem insumo escolhido não vira ingrediente fantasma
       if (itemId) ings.push({ itemId, quantidade });
     });
+    // precoVenda é derivado e só continua sendo gravado para não confundir
+    // aparelhos que ainda tenham a versão antiga do sistema instalada.
+    const rendimento = Number(el("receita-rendimento").value) || 1;
+    const precoUnitario = Number(el("receita-preco-unitario").value) || 0;
     const dados = {
       nome: el("receita-nome").value.trim(),
-      rendimento: Number(el("receita-rendimento").value) || 1,
-      precoVenda: Number(el("receita-preco-venda").value) || 0,
+      rendimento,
+      precoUnitario,
+      precoVenda: precoUnitario * rendimento,
       ingredientes: ings
     };
     if (idEdit) {
@@ -823,7 +887,7 @@ function configurarFormularios() {
       const recId = row.querySelector(".enc-prod-select").value;
       const qtd = Number(row.querySelector(".enc-prod-qtd").value) || 0;
       const r = state.receitas.find(rec => rec.id === recId);
-      if (r) total += (r.precoVenda / (r.rendimento || 1)) * qtd;
+      if (r) total += (Number(r.precoUnitario) || 0) * qtd;
     });
     return total;
   };

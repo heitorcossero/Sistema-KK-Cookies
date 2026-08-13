@@ -25,13 +25,18 @@ CREATE TABLE IF NOT EXISTS itens (
   created_at TIMESTAMPTZ DEFAULT now()
 );
 
--- Receitas. preco_venda é o valor do lote inteiro, não da unidade:
--- o preço por cookie sai de preco_venda / rendimento.
+-- Receitas. Quem manda no preço é preco_unitario, o valor de UM cookie:
+-- é assim que se vende, e ele não muda quando a fornada rende menos.
+-- preco_venda continua sendo gravado (preco_unitario x rendimento) só para
+-- aparelhos com a versão antiga instalada não mostrarem preço velho.
+-- rendimento é a média esperada da receita: serve de estimativa para a lista
+-- de compras e para sugerir quantos cookies saíram ao registrar a produção.
 -- ingredientes: [{ "itemId": "uuid", "quantidade": 500 }, ...]
 CREATE TABLE IF NOT EXISTS receitas (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   nome TEXT NOT NULL,
   rendimento NUMERIC DEFAULT 1,
+  preco_unitario NUMERIC DEFAULT 0,
   preco_venda NUMERIC DEFAULT 0,
   ingredientes JSONB DEFAULT '[]'::jsonb,
   created_at TIMESTAMPTZ DEFAULT now()
@@ -68,8 +73,13 @@ CREATE TABLE IF NOT EXISTS encomendas (
 -- tipo = 'saida'     -> item_id, quantidade
 -- tipo = 'congelado' -> receita_id, quantidade (negativa quando sai)
 -- tipo = 'producao'  -> detalhes_ingredientes [{itemId, quantidade}, ...],
---                       receita_id + quantidade = cookies que foram
---                       para o freezer, faturamento e lucro do lote
+--                       receita_id, faturamento e lucro do lote, mais:
+--                       quantidade      = cookies que entraram no freezer
+--                                         (é o que o Desfazer devolve)
+--                       rendimento_real = cookies que saíram do forno, mesmo
+--                                         os que não foram congelados
+--                       multiplicador   = vezes a receita, para calcular
+--                                         depois a média real por fornada
 CREATE TABLE IF NOT EXISTS historico (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   tipo TEXT,
@@ -163,6 +173,20 @@ ALTER TABLE encomendas
 -- Marca que o valor do pedido já foi enviado ao financeiro, para o sistema
 -- não oferecer o lançamento duas vezes.
 ALTER TABLE encomendas ADD COLUMN IF NOT EXISTS "financeiroEnviado" BOOLEAN DEFAULT false;
+
+-- A KK vende cookie, não receita: o preço de cada unidade passou a ser
+-- cadastrado direto, em vez de sair de preco_venda / rendimento. O UPDATE
+-- converte as receitas antigas uma única vez.
+ALTER TABLE receitas ADD COLUMN IF NOT EXISTS preco_unitario NUMERIC DEFAULT 0;
+UPDATE receitas
+   SET preco_unitario = ROUND(preco_venda / NULLIF(rendimento, 0), 2)
+ WHERE COALESCE(preco_unitario, 0) = 0 AND COALESCE(preco_venda, 0) > 0;
+
+-- A fornada nem sempre rende o previsto, então o número real informado na hora
+-- de registrar a produção passou a ser guardado no lançamento. Ver o comentário
+-- da tabela historico, mais acima, para o significado de cada coluna.
+ALTER TABLE historico ADD COLUMN IF NOT EXISTS rendimento_real NUMERIC;
+ALTER TABLE historico ADD COLUMN IF NOT EXISTS multiplicador NUMERIC;
 
 
 -- ------------------------------------------------------------

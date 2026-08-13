@@ -188,6 +188,13 @@ export async function carregar() {
   if (raw) {
     try {
       Object.assign(state, JSON.parse(raw));
+      // Cópia salva antes do preço por cookie existir: converte a partir do
+      // preço do lote, senão a receita apareceria valendo zero offline.
+      state.receitas.forEach(r => {
+        if (!(Number(r.precoUnitario) > 0)) {
+          r.precoUnitario = (Number(r.precoVenda) / (Number(r.rendimento) || 1)) || 0;
+        }
+      });
     } catch (e) { console.error(e); }
   }
 
@@ -223,7 +230,14 @@ export async function carregar() {
       state.itens = it.data.map(i => ({ ...i, custoMedio: Number(i.custo_medio), estoqueMinimo: Number(i.estoque_minimo), quantidade: Number(i.quantidade) }));
     }
     if (veio(cl, "clientes")) state.clientes = cl.data.map(c => ({ ...c, ultimaConversa: c.ultima_conversa }));
-    if (veio(rec, "receitas")) state.receitas = rec.data.map(r => ({ ...r, precoVenda: Number(r.preco_venda), rendimento: Number(r.rendimento) }));
+    // Receita antiga só tem o preço do lote: o preço por cookie sai da divisão,
+    // que é exatamente a conta que o sistema fazia antes de existir a coluna.
+    if (veio(rec, "receitas")) state.receitas = rec.data.map(r => ({
+      ...r,
+      precoVenda: Number(r.preco_venda),
+      rendimento: Number(r.rendimento),
+      precoUnitario: Number(r.preco_unitario) || (Number(r.preco_venda) / (Number(r.rendimento) || 1)) || 0
+    }));
     if (veio(enc, "encomendas")) state.encomendas = enc.data.map(e => ({ ...e, valorTotal: Number(e.valor_total), clienteId: e.cliente_id, dataEntrega: e.data_entrega }));
     if (veio(hist, "historico")) state.historico = hist.data;
     if (veio(cong, "congelados")) {
@@ -264,6 +278,7 @@ function paraBanco(d) {
   if (obj.dataEntrega !== undefined) { obj.data_entrega = obj.dataEntrega || null; delete obj.dataEntrega; }
   if (obj.receitaId !== undefined) { obj.receita_id = obj.receitaId || null; delete obj.receitaId; }
   if (obj.precoVenda !== undefined) { obj.preco_venda = Number(obj.precoVenda); delete obj.precoVenda; }
+  if (obj.precoUnitario !== undefined) { obj.preco_unitario = Number(obj.precoUnitario); delete obj.precoUnitario; }
   if (obj.itemId !== undefined) { obj.item_id = obj.itemId || null; delete obj.itemId; }
   if (obj.detalhesIngredientes !== undefined) { obj.detalhes_ingredientes = obj.detalhesIngredientes; delete obj.detalhesIngredientes; }
   if (obj.criado_at !== undefined) { obj.created_at = obj.criado_at; delete obj.criado_at; }

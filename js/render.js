@@ -526,6 +526,19 @@ function renderEncomendas() {
   if (resumoConcluidos) resumoConcluidos.textContent = `Pedidos entregues (${entregues.length})`;
 }
 
+// Média de quantos cookies as últimas fornadas realmente renderam, por receita
+// inteira. Produções antigas não têm esses campos e ficam de fora, então a
+// média só aparece depois que houver fornada registrada pelo sistema novo.
+function mediaRealDaReceita(receitaId) {
+  const fornadas = state.historico
+    .filter(h => h.tipo === "producao" && (h.receita_id || h.receitaId) === receitaId
+      && Number(h.multiplicador) > 0 && h.rendimento_real !== undefined && h.rendimento_real !== null)
+    .slice(0, 10);
+  if (!fornadas.length) return null;
+  const soma = fornadas.reduce((t, h) => t + (Number(h.rendimento_real) / Number(h.multiplicador)), 0);
+  return { media: Math.round(soma / fornadas.length), fornadas: fornadas.length };
+}
+
 function renderReceitas() {
   const container = el("lista-receitas-editar");
   if (!container) return;
@@ -533,15 +546,20 @@ function renderReceitas() {
     const custoTotal = calcularCustoReceita(r);
     const rend = r.rendimento || 1;
     const custoUnit = custoTotal / rend;
-    const lucroTotal = r.precoVenda - custoTotal;
-    const lucroUnit = (r.precoVenda / rend) - custoUnit;
+    const precoUnit = Number(r.precoUnitario) || 0;
+    const lucroUnit = precoUnit - custoUnit;
+    const lucroTotal = lucroUnit * rend;
     const suspeito = custoUnit > 20;
+    const real = mediaRealDaReceita(r.id);
+    const linhaReal = real
+      ? ` · nas últimas ${real.fornadas} fornada${real.fornadas > 1 ? "s" : ""} rendeu <strong>${real.media} un</strong>`
+      : "";
 
     return `<div class="card-receita-edit ${suspeito ? "suspeito" : ""}">
       <div class="enc-topo" style="margin:0">
         <div>
           <h3>${escapeHtml(r.nome)}</h3>
-          <p class="enc-sub">Rende <strong>${rend} un</strong> · vende por <strong>${formatarMoeda(r.precoVenda)}</strong></p>
+          <p class="enc-sub">Rende <strong>${rend} un</strong> · cada cookie por <strong>${formatarMoeda(precoUnit)}</strong>${linhaReal}</p>
         </div>
         <div class="btn-row">
           <button type="button" class="btn-mini" data-action="editar-receita" data-id="${r.id}">Editar</button>
@@ -649,7 +667,7 @@ function renderResumo() {
     if (!r || q <= 0) return;
     const rend = Number(r.rendimento) || 1;
     const custoUnit = calcularCustoReceita(r) / rend;
-    const vendaUnit = (Number(r.precoVenda) || 0) / rend;
+    const vendaUnit = Number(r.precoUnitario) || 0;
     vFreezerCusto += custoUnit * q;
     // sabor ainda sem preço de venda cadastrado: cai no markup, para não zerar
     vFreezerVenda += (vendaUnit > 0 ? vendaUnit : custoUnit * MARKUP) * q;

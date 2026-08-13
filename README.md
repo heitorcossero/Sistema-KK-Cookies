@@ -8,11 +8,11 @@ Sistema interno da KK Cookies para controle de estoque, receitas, encomendas e c
 ## O que ele faz
 
 - **Resumo** — valor investido em estoque, faturamento das produções, potencial de venda (markup) e ranking de sabores mais pedidos no mês.
-- **Estoque** — entrada de compras (com custo médio ponderado), produção de receitas (baixa os ingredientes e já guarda os cookies no freezer), freezer e ajustes manuais. Tudo com histórico e botão de desfazer.
+- **Estoque** — entrada de compras (com custo médio ponderado), produção de receitas (baixa os ingredientes e já guarda os cookies no freezer), freezer e ajustes manuais. Ao registrar a produção você informa quantos cookies a fornada rendeu de verdade — o campo já vem preenchido com o previsto pela receita, mas quem manda no freezer é o número real. Tudo com histórico e botão de desfazer.
 - **Encomendas** — pedidos com esteira de produção (massa → assado → entregue), selo de pagamento à parte, valor editável para desconto ou entrega, e lista de compras consolidada que desconta estoque, freezer e o que já teve a massa feita. Marcar como entregue baixa os cookies do freezer.
 - **Financeiro** — a única fonte da verdade do dinheiro: entradas, saídas, saldo em caixa, fluxo do período, gastos por categoria, contas fixas e extrato. Estoque e Encomendas **não** alimentam estes números sozinhos; só criam lançamentos quando você marca a opção de enviar. Categorias carregam a natureza do dinheiro (despesa, investimento, retirada de lucro, venda, aporte), que é o que separa o caixa do lucro.
 - **Clientes** — cadastro com WhatsApp, notas, histórico de pedidos e total já comprado.
-- **Cadastros** — insumos e receitas (ingredientes, rendimento e preço de venda).
+- **Cadastros** — insumos e receitas (ingredientes, preço de venda de cada cookie e rendimento médio esperado, que serve de estimativa para a lista de compras e de sugestão na produção; o card mostra ao lado quanto as últimas fornadas renderam de verdade).
 
 ## Nada se perde
 

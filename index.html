@@ -202,6 +202,13 @@
                   <button type="button" class="btn-mini" id="btn-meia-receita">Meia</button>
                 </div>
               </label>
+              <label><span>Quantos cookies saíram</span>
+                <input type="number" id="produzir-rendeu" step="1" min="0" placeholder="0" required />
+                <small class="campo-dica hidden" id="produzir-dica-rendeu">
+                  <span id="produzir-rendeu-previsto"></span>
+                  <button type="button" class="btn-mini" id="btn-rendeu-previsto">Usar o previsto</button>
+                </small>
+              </label>
               <label class="opcao">
                 <input type="checkbox" id="produzir-guardar-freezer" checked />
                 <span>Guardar os cookies no freezer</span>
@@ -472,8 +479,8 @@
               <input type="hidden" id="receita-id-edit" />
               <label><span>Nome</span><input type="text" id="receita-nome" required /></label>
               <div class="grid-2">
-                <label><span>Rendimento em unidades</span><input type="number" id="receita-rendimento" min="1" placeholder="Ex.: 20" required /></label>
-                <label><span>Venda total da receita</span><input type="number" id="receita-preco-venda" step="any" min="0" placeholder="R$ 0,00" required /></label>
+                <label><span>Rendimento médio (unidades)</span><input type="number" id="receita-rendimento" min="1" placeholder="Ex.: 20" required /></label>
+                <label><span>Preço de venda de cada cookie</span><input type="number" id="receita-preco-unitario" step="any" min="0" placeholder="R$ 0,00" required /></label>
               </div>
               <div id="ingredientes-container" class="enc-linhas-editor"></div>
               <button type="button" id="btn-add-ingrediente" class="btn btn-ghost">Adicionar ingrediente</button>
