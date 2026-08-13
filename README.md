@@ -8,15 +8,15 @@ Sistema interno da KK Cookies para controle de estoque, receitas, encomendas e c
 ## O que ele faz
 
 - **Resumo** — valor investido em estoque, faturamento das produções, potencial de venda (markup) e ranking de sabores mais pedidos no mês.
-- **Estoque** — entrada de compras (com custo médio ponderado), produção de receitas (baixa automática dos ingredientes), freezer de cookies congelados e ajustes manuais. Tudo com histórico e botão de desfazer.
-- **Encomendas** — pedidos com checklist de produção (pago → massa feita → assado → entregue) e lista de compras consolidada, que desconta o que já há em estoque e no freezer.
+- **Estoque** — entrada de compras (com custo médio ponderado), produção de receitas (baixa os ingredientes e já guarda os cookies no freezer), freezer e ajustes manuais. Tudo com histórico e botão de desfazer.
+- **Encomendas** — pedidos com esteira de produção (massa → assado → entregue), selo de pagamento à parte, valor editável para desconto ou entrega, e lista de compras consolidada que desconta estoque, freezer e o que já teve a massa feita. Marcar como entregue baixa os cookies do freezer.
 - **Clientes** — cadastro com WhatsApp, notas, histórico de pedidos e total já comprado.
 - **Cadastros** — insumos e receitas (ingredientes, rendimento e preço de venda).
 
 ## Tecnologia
 
 - HTML, CSS e JavaScript puro (módulos ES), sem build.
-- [Supabase](https://supabase.com) para banco de dados (PostgreSQL com RLS) e autenticação.
+- [Supabase](https://supabase.com) para banco de dados (PostgreSQL com RLS) e autenticação. A biblioteca fica em `js/vendor/`, servida pelo próprio site — de CDN ela não entrava no cache e o app não abria offline.
 - PWA: instalável no celular, com service worker para funcionar offline (leitura).
 - Publicado via GitHub Pages.
 
@@ -26,6 +26,7 @@ Sistema interno da KK Cookies para controle de estoque, receitas, encomendas e c
 index.html        Estrutura das telas
 style.css         Identidade visual (paleta chocolate/creme da marca)
 js/
+  vendor/         Biblioteca do Supabase (servida localmente, p/ funcionar offline)
   config.js       URLs, chaves e markup
   utils.js        Formatação, toast e modal de confirmação
   data.js         Estado, Supabase e persistência local

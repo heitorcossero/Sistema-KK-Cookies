@@ -436,6 +436,15 @@ h1, h2, h3, h4 {
   box-shadow: 0 0 0 3px var(--verde-fundo);
 }
 
+.sync-status.erro {
+  color: var(--ambar);
+  border-color: rgba(220, 179, 103, 0.35);
+}
+.sync-status.erro::before {
+  background: var(--ambar);
+  box-shadow: 0 0 0 3px var(--ambar-fundo);
+}
+
 @media (min-width: 640px) {
   .topbar h1, .topbar-data { display: block; }
 }
@@ -966,6 +975,69 @@ input[type="date"]::-webkit-calendar-picker-indicator:hover { opacity: 1; }
 
 input[type="number"] { font-variant-numeric: tabular-nums; }
 
+/* opção de marcar: fica na horizontal, ao contrário dos campos normais */
+.form label.opcao {
+  flex-direction: row;
+  align-items: center;
+  gap: var(--s3);
+  cursor: pointer;
+}
+
+.form label.opcao span {
+  font-size: 0.84rem;
+  font-weight: 600;
+  color: var(--tinta-2);
+}
+
+input[type="checkbox"] {
+  appearance: none;
+  flex-shrink: 0;
+  width: 20px;
+  height: 20px;
+  min-height: 0;
+  padding: 0;
+  display: grid;
+  place-items: center;
+  border: 1px solid var(--linha-3);
+  border-radius: 6px;
+  background: var(--cacau-800);
+  cursor: pointer;
+}
+
+input[type="checkbox"]::after {
+  content: "";
+  width: 10px;
+  height: 10px;
+  clip-path: polygon(14% 44%, 0 60%, 39% 100%, 100% 22%, 84% 6%, 37% 66%);
+  background: var(--marca-tinta);
+  transform: scale(0);
+  transition: transform 0.15s cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+input[type="checkbox"]:checked {
+  background: var(--creme);
+  border-color: var(--creme);
+}
+
+input[type="checkbox"]:checked::after { transform: scale(1); }
+
+input[type="checkbox"]:focus-visible {
+  outline: 2px solid var(--biscoito);
+  outline-offset: 2px;
+}
+
+/* dica abaixo de um campo, com ação de atalho */
+.campo-dica {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--s3);
+  margin-top: var(--s2);
+  font-size: 0.76rem;
+  font-weight: 600;
+  color: var(--biscoito);
+}
+
 /* =========================================================
    BOTÕES
    ========================================================= */
@@ -990,6 +1062,14 @@ input[type="number"] { font-variant-numeric: tabular-nums; }
 
 .btn:active { transform: translateY(1px); }
 .btn:focus-visible { outline: 2px solid var(--biscoito); outline-offset: 2px; }
+
+/* travado durante o salvamento, para o toque duplo não gravar duas vezes */
+.btn:disabled {
+  opacity: 0.55;
+  cursor: progress;
+  transform: none;
+  filter: saturate(0.6);
+}
 
 .btn-primary {
   color: var(--marca-tinta);

@@ -1,5 +1,5 @@
 // Renderização de todas as telas
-import { state, initSupabase, calcularCustoReceita } from "./data.js";
+import { state, initSupabase, calcularCustoReceita, conexao } from "./data.js";
 import { MARKUP } from "./config.js";
 import { desenharGraficoFaturamento } from "./chart.js";
 import {
@@ -42,16 +42,30 @@ export function renderizar() {
   } catch (e) { console.error(e); }
 }
 
+// O selo reflete o resultado da última conversa com a nuvem, não apenas o
+// fato de a biblioteca ter carregado — antes ele dizia "Sincronizado" mesmo
+// com o aparelho offline servindo a página do cache.
 function renderSyncStatus() {
-  const s = initSupabase();
   const status = el("sync-status");
-  if (status) {
-    status.textContent = s ? "Sincronizado" : "Modo local";
-    status.title = s
-      ? "Seus dados estão salvos na nuvem."
-      : "Sem conexão com a nuvem — os dados ficam neste aparelho.";
-    status.classList.toggle("ok", !!s);
+  if (!status) return;
+  const temBiblioteca = !!initSupabase();
+
+  let rotulo, dica;
+  if (!temBiblioteca) {
+    rotulo = "Modo local";
+    dica = "Sem a conexão com a nuvem — os lançamentos ficam só neste aparelho.";
+  } else if (conexao.ok) {
+    rotulo = "Sincronizado";
+    dica = "A última gravação chegou na nuvem.";
+  } else {
+    rotulo = "Sem conexão";
+    dica = "A nuvem não respondeu. Os lançamentos ficam neste aparelho até voltar.";
   }
+
+  status.textContent = rotulo;
+  status.title = dica;
+  status.classList.toggle("ok", temBiblioteca && conexao.ok);
+  status.classList.toggle("erro", temBiblioteca && !conexao.ok);
 }
 
 function renderAlertas() {
@@ -268,7 +282,13 @@ function renderEncomendas() {
   const lista = el("lista-encomendas");
   if (!lista) return;
 
-  const ordenadas = [...state.encomendas].sort((a, b) => new Date(a.dataEntrega || 0) - new Date(b.dataEntrega || 0));
+  // Pedido sem data marcada vai para o fim: antes ele contava como 1970 e
+  // aparecia como o mais urgente da fila.
+  const prazo = (e) => {
+    const t = e.dataEntrega ? new Date(e.dataEntrega).getTime() : NaN;
+    return isNaN(t) ? Infinity : t;
+  };
+  const ordenadas = [...state.encomendas].sort((a, b) => prazo(a) - prazo(b));
   const andamento = ordenadas.filter(e => !statusPedido(e).entregue);
   const entregues = ordenadas.filter(e => statusPedido(e).entregue);
 
@@ -343,9 +363,14 @@ function renderListaCompras() {
   const container = el("lista-compras-consolidada");
   if (!container) return;
 
-  // total pedido por sabor, apenas de pedidos ainda não entregues
+  // Total pedido por sabor. Pedido com a massa já feita fica de fora: os
+  // ingredientes dele já saíram do estoque, então mandar comprar de novo
+  // faria você repor o dobro.
   const totalPorSabor = {};
-  state.encomendas.filter(e => !statusPedido(e).entregue).forEach(enc => {
+  state.encomendas.filter(e => {
+    const st = statusPedido(e);
+    return !st.entregue && !st.massaFeita;
+  }).forEach(enc => {
     (enc.produtos || []).forEach(p => {
       totalPorSabor[p.receitaId] = (totalPorSabor[p.receitaId] || 0) + p.quantidade;
     });
@@ -493,13 +518,19 @@ export function atualizarSelects() {
   document.querySelectorAll("#enc-cliente-select").forEach(s => { const v = s.value; s.innerHTML = optCli; s.value = v; });
 }
 
-// Linhas dinâmicas de ingrediente / produto
+// Linhas dinâmicas de ingrediente / produto.
+// A opção vazia no início é proteção: se o insumo da receita tiver sido
+// apagado, a linha aparece em branco em vez de escolher o primeiro da lista
+// sem avisar — que era como uma quantidade acabava no insumo errado.
 export function novaLinhaIngrediente(ing = null) {
   const itens = [...state.itens].sort((a, b) => (a.nome || "").localeCompare(b.nome || ""));
+  const existe = ing && itens.some(i => i.id === ing.itemId);
   const div = document.createElement("div");
   div.className = "enc-linha-row";
-  div.innerHTML = `<select class="ing-select" required>${itens.map(i =>
-      `<option value="${i.id}" ${ing && i.id === ing.itemId ? "selected" : ""}>${escapeHtml(i.nome)}</option>`).join("")}</select>
+  div.innerHTML = `<select class="ing-select" required>
+    <option value="" ${existe ? "" : "selected"}>Selecione…</option>
+    ${itens.map(i =>
+      `<option value="${i.id}" ${existe && i.id === ing.itemId ? "selected" : ""}>${escapeHtml(i.nome)}</option>`).join("")}</select>
     <input type="number" class="ing-qtd" step="any" min="0" placeholder="Qtd" value="${ing ? ing.quantidade : ""}" required />
     <button type="button" class="btn-mini perigo" data-action="remover-linha" aria-label="Remover ingrediente">×</button>`;
   return div;
@@ -507,10 +538,13 @@ export function novaLinhaIngrediente(ing = null) {
 
 export function novaLinhaProduto(p = null) {
   const receitas = [...state.receitas].sort((a, b) => (a.nome || "").localeCompare(b.nome || ""));
+  const existe = p && receitas.some(r => r.id === p.receitaId);
   const div = document.createElement("div");
   div.className = "enc-linha-row";
-  div.innerHTML = `<select class="enc-prod-select" required>${receitas.map(r =>
-      `<option value="${r.id}" ${p && r.id === p.receitaId ? "selected" : ""}>${escapeHtml(r.nome)}</option>`).join("")}</select>
+  div.innerHTML = `<select class="enc-prod-select" required>
+    <option value="" ${existe ? "" : "selected"}>Selecione…</option>
+    ${receitas.map(r =>
+      `<option value="${r.id}" ${existe && r.id === p.receitaId ? "selected" : ""}>${escapeHtml(r.nome)}</option>`).join("")}</select>
     <input type="number" class="enc-prod-qtd" step="1" min="1" placeholder="Qtd" value="${p ? p.quantidade : ""}" required />
     <button type="button" class="btn-mini perigo" data-action="remover-linha" aria-label="Remover produto">×</button>`;
   return div;

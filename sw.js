@@ -1,8 +1,9 @@
-const CACHE_NAME = 'kk-cookies-v8';
+const CACHE_NAME = 'kk-cookies-v9';
 const ASSETS = [
   './',
   './index.html',
   './style.css',
+  './js/vendor/supabase.js',
   './js/config.js',
   './js/utils.js',
   './js/data.js',
@@ -41,10 +42,12 @@ self.addEventListener('fetch', (e) => {
   e.respondWith(
     fetch(e.request, { cache: 'no-cache' })
       .then((resp) => {
-        // guarda uma cópia fresca para uso offline
-        if (resp.ok && e.request.url.startsWith(self.location.origin)) {
+        // Guarda uma cópia fresca para uso offline. Vale também para outros
+        // domínios (as fontes do Google), desde que a resposta seja legível —
+        // respostas opacas têm ok === false e ficam de fora sozinhas.
+        if (resp.ok) {
           const copia = resp.clone();
-          caches.open(CACHE_NAME).then((cache) => cache.put(e.request, copia));
+          caches.open(CACHE_NAME).then((cache) => cache.put(e.request, copia)).catch(() => {});
         }
         return resp;
       })

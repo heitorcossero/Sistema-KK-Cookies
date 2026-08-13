@@ -11,6 +11,10 @@ export const state = {
   congelados: {}
 };
 
+// Situação real da sincronia, não apenas "a biblioteca carregou".
+// Vira true quando a nuvem responde e false quando uma operação falha.
+export const conexao = { ok: false };
+
 let supabase = null;
 
 export function initSupabase() {
@@ -45,7 +49,10 @@ export async function carregar() {
       s.from("clientes").select("*"),
       s.from("receitas").select("*"),
       s.from("encomendas").select("*"),
-      s.from("historico").select("*").order("quando", { ascending: false }).limit(100),
+      // O histórico alimenta o extrato, o gráfico e o faturamento acumulado.
+      // Com um teto baixo, lançamentos antigos sumiam da soma e o faturamento
+      // encolhia sozinho com o tempo.
+      s.from("historico").select("*").order("quando", { ascending: false }).limit(2000),
       s.from("congelados").select("*")
     ]);
 
@@ -60,8 +67,10 @@ export async function carregar() {
       state.congelados = {};
       cong.data.forEach(c => { state.congelados[c.receita_id] = Number(c.quantidade); });
     }
+    conexao.ok = true;
     localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
   } catch (err) {
+    conexao.ok = false;
     console.error("Erro ao carregar da nuvem:", err);
   }
 }
@@ -94,19 +103,32 @@ export async function salvar(tabela = null, dados = null) {
   try {
     const payload = (Array.isArray(dados) ? dados : [dados]).map(paraBanco);
     const { error } = await s.from(tabela).upsert(payload);
-    if (error) console.error("Erro de sincronia com o Supabase:", error);
+    if (error) {
+      conexao.ok = false;
+      console.error("Erro de sincronia com o Supabase:", error);
+      toast("A nuvem recusou a alteração. Salva só neste aparelho.", true);
+    } else {
+      conexao.ok = true;
+    }
   } catch (err) {
+    conexao.ok = false;
     console.error("Erro de conexão com o Supabase:", err);
     toast("Sem conexão — alteração salva só neste aparelho.", true);
   }
 }
 
-export async function apagarDaNuvem(tabela, id) {
+// `coluna` existe porque nem toda tabela usa "id" como chave: congelados é
+// identificada por receita_id.
+export async function apagarDaNuvem(tabela, id, coluna = "id") {
   const s = initSupabase();
   if (s) {
     try {
-      await s.from(tabela).delete().eq("id", id);
-    } catch (err) { console.error(err); }
+      await s.from(tabela).delete().eq(coluna, id);
+      conexao.ok = true;
+    } catch (err) {
+      conexao.ok = false;
+      console.error(err);
+    }
   }
 }
 

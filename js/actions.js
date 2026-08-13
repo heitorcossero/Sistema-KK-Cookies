@@ -1,10 +1,35 @@
 // Ações do usuário: formulários, botões e eventos delegados
 import { state, salvar, apagarDaNuvem, calcularCustoReceita, migrarParaNuvem } from "./data.js";
 import { renderizar, novaLinhaIngrediente, novaLinhaProduto } from "./render.js";
-import { uid, toast, confirmar, escapeHtml, formatarMoeda, formatarQtd } from "./utils.js";
+import { uid, toast, confirmar, escapeHtml, formatarMoeda, formatarQtd, dataDoDia, isoDeHojeLocal } from "./utils.js";
 import { logout } from "./auth.js";
 
 const el = (id) => document.getElementById(id);
+
+// Envio de formulário à prova de toque duplo: enquanto o salvamento não
+// termina, o formulário fica travado. Sem isso, um segundo toque no celular
+// com internet lenta gravava o mesmo lançamento duas vezes.
+function aoEnviar(idForm, manipulador) {
+  const form = el(idForm);
+  if (!form) return;
+  let ocupado = false;
+  form.onsubmit = async (e) => {
+    e.preventDefault();
+    if (ocupado) return;
+    ocupado = true;
+    const botoes = [...form.querySelectorAll("button[type=submit]")];
+    botoes.forEach(b => { b.disabled = true; });
+    try {
+      await manipulador(e);
+    } catch (err) {
+      console.error(`Erro ao processar ${idForm}:`, err);
+      toast("Não foi possível concluir. Tente de novo.", true);
+    } finally {
+      ocupado = false;
+      botoes.forEach(b => { b.disabled = false; });
+    }
+  };
+}
 
 // ==========================================
 // EDIÇÃO (preenche formulários)
@@ -90,7 +115,9 @@ function editarEncomenda(id) {
   el("enc-cliente-select").value = e.clienteId;
   el("enc-data-entrega").value = e.dataEntrega || "";
   el("enc-titulo").value = e.titulo || "";
+  // valor já negociado: preserva como está, sem recalcular por cima
   el("enc-valor-total").value = e.valorTotal;
+  el("enc-valor-total").dataset.manual = "1";
   const container = el("enc-produtos-container");
   container.innerHTML = "";
   (e.produtos || []).forEach(p => container.appendChild(novaLinhaProduto(p)));
@@ -105,6 +132,8 @@ function cancelarEncomenda() {
   const form = el("form-encomenda");
   form.reset();
   delete form.dataset.editId;
+  delete el("enc-valor-total").dataset.manual;
+  el("enc-dica-total")?.classList.add("hidden");
   el("enc-produtos-container").innerHTML = "";
   el("titulo-form-encomenda").textContent = "Novo pedido";
   el("btn-salvar-encomenda").textContent = "Salvar encomenda";
@@ -123,6 +152,60 @@ async function excluir(tabela, id, mensagem) {
   await salvar();
   renderizar();
   toast("Excluído.");
+}
+
+// Apagar um insumo deixava o id morto dentro das receitas. Ao reabrir a
+// receita, o campo não achava o insumo e o navegador escolhia o primeiro da
+// lista — salvando sem perceber, a quantidade migrava para o insumo errado.
+async function excluirInsumo(id) {
+  const it = state.itens.find(x => x.id === id);
+  const receitasAfetadas = state.receitas.filter(r =>
+    (r.ingredientes || []).some(ing => ing.itemId === id));
+
+  const aviso = receitasAfetadas.length
+    ? `Excluir o insumo "${it?.nome}"?\n\nEle será removido de ${receitasAfetadas.length} receita(s): ${receitasAfetadas.map(r => r.nome).join(", ")}.\n\nO custo dessas receitas vai mudar.`
+    : `Excluir o insumo "${it?.nome}"?`;
+
+  const ok = await confirmar(aviso, { titulo: "Excluir", botao: "Excluir" });
+  if (!ok) return;
+
+  for (const r of receitasAfetadas) {
+    r.ingredientes = (r.ingredientes || []).filter(ing => ing.itemId !== id);
+    await salvar("receitas", r);
+  }
+
+  state.itens = state.itens.filter(x => x.id !== id);
+  await apagarDaNuvem("itens", id);
+  await salvar();
+  renderizar();
+  toast(receitasAfetadas.length ? "Insumo excluído e removido das receitas." : "Insumo excluído.");
+}
+
+// O banco apaga os congelados junto com a receita (CASCADE). Sem espelhar isso
+// no aparelho, sobravam cookies órfãos que sumiam do valor em estoque.
+async function excluirReceita(id) {
+  const r = state.receitas.find(x => x.id === id);
+  const noFreezer = state.congelados[id] || 0;
+  const pedidosAbertos = state.encomendas.filter(e =>
+    !(e.status?.entregue) && (e.produtos || []).some(p => p.receitaId === id)).length;
+
+  const partes = [`Excluir a receita "${r?.nome}"?`];
+  if (noFreezer > 0) partes.push(`Os ${noFreezer} cookie(s) desse sabor saem do freezer.`);
+  if (pedidosAbertos > 0) partes.push(`${pedidosAbertos} pedido(s) em andamento usam esse sabor e ficarão sem receita.`);
+
+  const ok = await confirmar(partes.join("\n\n"), { titulo: "Excluir", botao: "Excluir" });
+  if (!ok) return;
+
+  if (state.congelados[id] !== undefined) {
+    delete state.congelados[id];
+    await apagarDaNuvem("congelados", id, "receita_id");
+  }
+
+  state.receitas = state.receitas.filter(x => x.id !== id);
+  await apagarDaNuvem("receitas", id);
+  await salvar();
+  renderizar();
+  toast("Receita excluída.");
 }
 
 async function excluirCliente(id) {
@@ -198,6 +281,13 @@ async function reverterLancamento(id) {
           await salvar("itens", item);
         }
       }
+      // se a produção tinha ido para o freezer, tira de lá também
+      const rId = h.receita_id || h.receitaId;
+      const congeladas = Number(h.quantidade || 0);
+      if (rId && congeladas > 0) {
+        state.congelados[rId] = Math.max(0, (state.congelados[rId] || 0) - congeladas);
+        await salvar("congelados", { receita_id: rId, quantidade: state.congelados[rId] });
+      }
     } else if (h.tipo === "congelado") {
       const rId = h.receita_id || h.receitaId;
       state.congelados[rId] = Math.max(0, (state.congelados[rId] || 0) - Number(h.quantidade || 0));
@@ -225,6 +315,48 @@ async function alternarStatusPedido(id, campo, valor) {
   enc.status = { pago: false, massaFeita: false, assado: false, entregue: false, ...(enc.status || {}), [campo]: valor };
   await salvar("encomendas", enc);
   renderizar();
+
+  // Entregar significa que os cookies saíram. Sem essa baixa, o freezer
+  // continuava cheio no papel e a lista de compras deixava de pedir o que
+  // precisava ser reposto.
+  if (campo === "entregue" && valor) await baixarDoFreezer(enc);
+}
+
+async function baixarDoFreezer(enc) {
+  const aBaixar = [];
+  for (const p of (enc.produtos || [])) {
+    const disponivel = state.congelados[p.receitaId] || 0;
+    const qtd = Math.min(Number(p.quantidade) || 0, disponivel);
+    if (qtd > 0) {
+      const r = state.receitas.find(x => x.id === p.receitaId);
+      aBaixar.push({ receitaId: p.receitaId, nome: r?.nome || "Cookie", qtd });
+    }
+  }
+  if (!aBaixar.length) return;
+
+  const lista = aBaixar.map(b => `${b.qtd} un ${b.nome}`).join("\n");
+  const ok = await confirmar(
+    `Tirar do freezer os cookies deste pedido?\n\n${lista}`,
+    { titulo: "Baixar do freezer", botao: "Tirar do freezer" }
+  );
+  if (!ok) return;
+
+  for (const b of aBaixar) {
+    state.congelados[b.receitaId] = Math.max(0, (state.congelados[b.receitaId] || 0) - b.qtd);
+    const h = {
+      id: uid(),
+      tipo: "congelado",
+      receita_id: b.receitaId,
+      quantidade: -b.qtd,
+      texto: `Entrega: ${b.qtd} un ${b.nome} — ${enc.titulo || "Pedido"}`,
+      quando: new Date().toISOString()
+    };
+    state.historico.unshift(h);
+    await salvar("congelados", { receita_id: b.receitaId, quantidade: state.congelados[b.receitaId] });
+    await salvar("historico", h);
+  }
+  renderizar();
+  toast("Freezer atualizado com a entrega.");
 }
 
 // ==========================================
@@ -233,8 +365,7 @@ async function alternarStatusPedido(id, campo, valor) {
 
 function configurarFormularios() {
   // --- Insumo (novo/editar) ---
-  el("form-novo-item").onsubmit = async (e) => {
-    e.preventDefault();
+  aoEnviar("form-novo-item", async () => {
     const idEdit = el("insumo-id-edit").value;
     const novoCusto = Number(el("novo-item-custo").value) || 0;
     const dados = {
@@ -259,7 +390,7 @@ function configurarFormularios() {
     cancelarInsumo();
     renderizar();
     toast("Insumo salvo!");
-  };
+  });
 
   // --- Entrada de compras ---
   const calcUnit = () => {
@@ -276,8 +407,7 @@ function configurarFormularios() {
   el("entrada-qtd").oninput = calcUnit;
   el("entrada-preco").oninput = calcUnit;
 
-  el("form-entrada").onsubmit = async (e) => {
-    e.preventDefault();
+  aoEnviar("form-entrada", async (e) => {
     const id = el("entrada-nome").value;
     const qtd = Number(el("entrada-qtd").value);
     const precoInput = el("entrada-preco").value;
@@ -315,11 +445,10 @@ function configurarFormularios() {
     calcUnit();
     renderizar();
     toast("Compra registrada!");
-  };
+  });
 
   // --- Saída manual ---
-  el("form-saida-manual").onsubmit = async (e) => {
-    e.preventDefault();
+  aoEnviar("form-saida-manual", async (e) => {
     const id = el("saida-manual-id").value;
     const qtd = Number(el("saida-manual-qtd").value);
     const item = state.itens.find(i => i.id === id);
@@ -343,11 +472,10 @@ function configurarFormularios() {
     e.target.reset();
     renderizar();
     toast("Estoque reduzido.");
-  };
+  });
 
   // --- Freezer ---
-  el("form-congelados").onsubmit = async (e) => {
-    e.preventDefault();
+  aoEnviar("form-congelados", async (e) => {
     const recId = el("congelado-receita-id").value;
     const qtd = Number(el("congelado-qtd").value);
     const sentido = e.submitter?.id === "btn-sub-congelado" ? -1 : 1;
@@ -375,13 +503,12 @@ function configurarFormularios() {
     e.target.reset();
     renderizar();
     toast("Freezer atualizado!");
-  };
+  });
 
   el("btn-meia-receita").onclick = () => { el("produzir-qtd").value = 0.5; };
 
   // --- Produção ---
-  el("form-produzir").onsubmit = async (e) => {
-    e.preventDefault();
+  aoEnviar("form-produzir", async (e) => {
     const rId = el("produzir-receita-id").value;
     const r = state.receitas.find(x => x.id === rId);
     const mult = Number(el("produzir-qtd").value);
@@ -419,13 +546,26 @@ function configurarFormularios() {
       }
     }
 
+    // Os cookies produzidos vão direto para o freezer, que é o destino normal.
+    // Registrado no próprio lançamento (receita_id + quantidade) para que
+    // desfazer a produção também tire os cookies do freezer.
+    const guardar = el("produzir-guardar-freezer")?.checked !== false;
+    const unidades = guardar ? Math.round((Number(r.rendimento) || 0) * mult) : 0;
+    if (unidades > 0) {
+      state.congelados[rId] = (state.congelados[rId] || 0) + unidades;
+    }
+
     const h = {
       id: uid(),
       tipo: "producao",
       lucro: faturamentoG - custoT,
       faturamento: faturamentoG,
       detalhes_ingredientes: dets,
-      texto: `Produção: ${mult}x ${r.nome}`,
+      receita_id: rId,
+      quantidade: unidades,
+      texto: unidades > 0
+        ? `Produção: ${mult}x ${r.nome} — ${unidades} un no freezer`
+        : `Produção: ${mult}x ${r.nome}`,
       quando: new Date().toISOString()
     };
 
@@ -434,7 +574,7 @@ function configurarFormularios() {
     e.target.reset();
     el("produzir-qtd").value = 1;
     renderizar();
-    toast("Produção registrada!");
+    toast(unidades > 0 ? `Produção registrada — ${unidades} un no freezer!` : "Produção registrada!");
 
     try {
       await salvar("historico", h);
@@ -442,21 +582,25 @@ function configurarFormularios() {
         const item = state.itens.find(i => i.id === ing.itemId);
         if (item) await salvar("itens", item);
       }
+      if (unidades > 0) {
+        await salvar("congelados", { receita_id: rId, quantidade: state.congelados[rId] });
+      }
     } catch (err) {
       console.error("Erro ao sincronizar produção:", err);
     }
-  };
+  });
 
   // --- Cliente ---
-  el("form-cliente").onsubmit = async (e) => {
-    e.preventDefault();
+  aoEnviar("form-cliente", async () => {
     const idEdit = el("cliente-id-edit").value;
     const dConv = el("cliente-ultima-conversa").value;
     const dados = {
       nome: el("cliente-nome").value.trim(),
       whatsapp: el("cliente-whatsapp").value.trim(),
       conversa: el("cliente-conversa").value,
-      ultimaConversa: dConv ? new Date(dConv).toISOString() : new Date().toISOString()
+      // sempre meia-noite UTC do dia escolhido, para o dia exibido não
+      // escorregar conforme o fuso de quem abre o sistema
+      ultimaConversa: dConv ? dataDoDia(dConv) : isoDeHojeLocal()
     };
     if (idEdit) {
       const c = state.clientes.find(x => x.id === idEdit);
@@ -472,15 +616,17 @@ function configurarFormularios() {
     cancelarCliente();
     renderizar();
     toast("Cliente salvo!");
-  };
+  });
 
   // --- Receita ---
-  el("form-nova-receita").onsubmit = async (e) => {
-    e.preventDefault();
+  aoEnviar("form-nova-receita", async () => {
     const idEdit = el("receita-id-edit").value;
     const ings = [];
     document.querySelectorAll("#ingredientes-container .enc-linha-row").forEach(row => {
-      ings.push({ itemId: row.querySelector(".ing-select").value, quantidade: Number(row.querySelector(".ing-qtd").value) });
+      const itemId = row.querySelector(".ing-select").value;
+      const quantidade = Number(row.querySelector(".ing-qtd").value);
+      // linha sem insumo escolhido não vira ingrediente fantasma
+      if (itemId) ings.push({ itemId, quantidade });
     });
     const dados = {
       nome: el("receita-nome").value.trim(),
@@ -502,10 +648,11 @@ function configurarFormularios() {
     cancelarReceita();
     renderizar();
     toast("Receita salva!");
-  };
+  });
 
   // --- Encomenda ---
-  const calcularTotalEncomenda = () => {
+  // Soma sugerida pela tabela de preços das receitas.
+  const somarProdutos = () => {
     let total = 0;
     document.querySelectorAll("#enc-produtos-container .enc-linha-row").forEach(row => {
       const recId = row.querySelector(".enc-prod-select").value;
@@ -513,31 +660,66 @@ function configurarFormularios() {
       const r = state.receitas.find(rec => rec.id === recId);
       if (r) total += (r.precoVenda / (r.rendimento || 1)) * qtd;
     });
-    el("enc-valor-total").value = total ? total.toFixed(2) : "";
     return total;
   };
 
-  el("enc-produtos-container").addEventListener("input", calcularTotalEncomenda);
-  el("enc-produtos-container").addEventListener("change", calcularTotalEncomenda);
+  // O total fica editável para caber desconto e taxa de entrega. Enquanto você
+  // não digitar nada nele, ele acompanha a soma dos produtos; assim que você
+  // mexer, o sistema para de sobrescrever o seu valor.
+  const atualizarTotalEncomenda = () => {
+    const campo = el("enc-valor-total");
+    const sugerido = somarProdutos();
+    const manual = campo.dataset.manual === "1";
 
-  el("form-encomenda").onsubmit = async (e) => {
-    e.preventDefault();
+    if (!manual) campo.value = sugerido ? sugerido.toFixed(2) : "";
+
+    // a dica só aparece quando o valor digitado difere da soma dos produtos
+    const diferente = manual && sugerido > 0 && Math.abs(Number(campo.value || 0) - sugerido) > 0.005;
+    el("enc-total-sugerido").textContent = diferente ? `Soma dos produtos: ${formatarMoeda(sugerido)}` : "";
+    el("enc-dica-total").classList.toggle("hidden", !diferente);
+    return sugerido;
+  };
+
+  el("enc-produtos-container").addEventListener("input", atualizarTotalEncomenda);
+  el("enc-produtos-container").addEventListener("change", atualizarTotalEncomenda);
+
+  el("enc-valor-total").addEventListener("input", () => {
+    el("enc-valor-total").dataset.manual = "1";
+    atualizarTotalEncomenda();
+  });
+
+  el("btn-total-sugerido").onclick = () => {
+    const campo = el("enc-valor-total");
+    delete campo.dataset.manual;
+    atualizarTotalEncomenda();
+  };
+
+  aoEnviar("form-encomenda", async (e) => {
     const editId = e.target.dataset.editId;
     const prods = [];
     document.querySelectorAll("#enc-produtos-container .enc-linha-row").forEach(row => {
-      prods.push({ receitaId: row.querySelector(".enc-prod-select").value, quantidade: Number(row.querySelector(".enc-prod-qtd").value) });
+      const receitaId = row.querySelector(".enc-prod-select").value;
+      const quantidade = Number(row.querySelector(".enc-prod-qtd").value);
+      if (receitaId && quantidade > 0) prods.push({ receitaId, quantidade });
     });
     if (!prods.length) {
       toast("Adicione pelo menos um produto ao pedido.", true);
       return;
     }
+    if (!el("enc-cliente-select").value) {
+      toast("Escolha o cliente do pedido.", true);
+      return;
+    }
+
+    const sugerido = somarProdutos();
+    const digitado = Number(el("enc-valor-total").value);
 
     const dados = {
       clienteId: el("enc-cliente-select").value,
-      dataEntrega: el("enc-data-entrega").value,
+      dataEntrega: el("enc-data-entrega").value || null,
       titulo: el("enc-titulo").value.trim(),
       produtos: prods,
-      valorTotal: calcularTotalEncomenda()
+      valorTotal: Number.isFinite(digitado) && digitado > 0 ? digitado : sugerido
     };
 
     if (editId) {
@@ -554,7 +736,7 @@ function configurarFormularios() {
     cancelarEncomenda();
     renderizar();
     toast("Encomenda salva!");
-  };
+  });
 
   el("btn-add-produto-enc").onclick = () => {
     el("enc-produtos-container").appendChild(novaLinhaProduto());
@@ -595,19 +777,11 @@ function configurarDelegacao() {
 
     switch (action) {
       case "editar-insumo": editarInsumo(id); break;
-      case "excluir-insumo": {
-        const it = state.itens.find(x => x.id === id);
-        excluir("itens", id, `Excluir o insumo "${it?.nome}"?\n\nEle sumirá das receitas que o usam.`);
-        break;
-      }
+      case "excluir-insumo": excluirInsumo(id); break;
       case "editar-cliente": editarCliente(id); break;
       case "excluir-cliente": excluirCliente(id); break;
       case "editar-receita": editarReceita(id); break;
-      case "excluir-receita": {
-        const r = state.receitas.find(x => x.id === id);
-        excluir("receitas", id, `Excluir a receita "${r?.nome}"?`);
-        break;
-      }
+      case "excluir-receita": excluirReceita(id); break;
       case "editar-encomenda": editarEncomenda(id); break;
       case "excluir-encomenda": excluir("encomendas", id, "Excluir este pedido?"); break;
       case "desfazer": reverterLancamento(id); break;

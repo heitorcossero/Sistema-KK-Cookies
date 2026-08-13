@@ -177,6 +177,10 @@
                   <button type="button" class="btn-mini" id="btn-meia-receita">Meia</button>
                 </div>
               </label>
+              <label class="opcao">
+                <input type="checkbox" id="produzir-guardar-freezer" checked />
+                <span>Guardar os cookies no freezer</span>
+              </label>
               <button type="submit" class="btn btn-secondary">Baixar do estoque</button>
             </form>
           </section>
@@ -232,7 +236,14 @@
             </div>
             <div class="grid-2">
               <label><span>Título do pedido</span><input type="text" id="enc-titulo" placeholder="Ex.: Kit festa" /></label>
-              <label><span>Valor total</span><input type="number" id="enc-valor-total" step="any" placeholder="R$ 0,00" readonly /></label>
+              <label>
+                <span>Valor total</span>
+                <input type="number" id="enc-valor-total" step="any" min="0" placeholder="R$ 0,00" />
+                <small class="campo-dica hidden" id="enc-dica-total">
+                  <span id="enc-total-sugerido"></span>
+                  <button type="button" class="btn-mini" id="btn-total-sugerido">Usar a soma</button>
+                </small>
+              </label>
             </div>
 
             <div id="enc-produtos-container" class="enc-linhas-editor"></div>
@@ -354,7 +365,9 @@
 
   <div id="toast" class="toast" role="status"></div>
 
-  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.42.0/dist/umd/supabase.js"></script>
+  <!-- Servida do próprio site: vinda de CDN, ela não entrava no cache offline
+       e o app ficava preso na tela de login sem internet. -->
+  <script src="./js/vendor/supabase.js"></script>
   <script type="module" src="js/main.js"></script>
   <script>
     if ('serviceWorker' in navigator) {

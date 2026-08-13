@@ -22,7 +22,9 @@ export const formatarMoedaExata = (n) => (Number(n) || 0).toLocaleString("pt-BR"
   style: "currency", currency: "BRL", minimumFractionDigits: 2, maximumFractionDigits: 10
 });
 
-export const formatarQtd = (n) => Number(n || 0).toFixed(3).replace(/\.?0+$/, "");
+// Quantidade com vírgula decimal, como se escreve em português
+export const formatarQtd = (n) =>
+  Number(n || 0).toFixed(3).replace(/\.?0+$/, "").replace(".", ",");
 
 export const escapeHtml = (s) => {
   const div = document.createElement("div");
@@ -30,12 +32,24 @@ export const escapeHtml = (s) => {
   return div.innerHTML;
 };
 
+// Carimbo de data e hora (histórico): mostra a hora local de quem está olhando.
+// Sem correção de fuso — o valor gravado já é o instante exato do lançamento,
+// e somar o offset fazia uma produção das 22h aparecer como 01h do dia seguinte.
 export const formatarData = (iso) => {
   if (!iso) return "A definir";
   const d = new Date(iso);
   if (isNaN(d.getTime())) return iso;
-  const dLocal = new Date(d.getTime() + d.getTimezoneOffset() * 60000);
-  return dLocal.toLocaleString("pt-BR", { day: "2-digit", month: "2-digit", year: "numeric", hour: "2-digit", minute: "2-digit" });
+  return d.toLocaleString("pt-BR", { day: "2-digit", month: "2-digit", year: "numeric", hour: "2-digit", minute: "2-digit" });
+};
+
+// Data do calendário (entrega, última conversa), gravada como meia-noite UTC.
+// Aqui a correção de fuso é necessária: sem ela, quem está a oeste de Greenwich
+// veria o dia anterior.
+export const dataDoDia = (aaaammdd) => new Date(`${aaaammdd}T00:00:00Z`).toISOString();
+
+export const isoDeHojeLocal = () => {
+  const n = new Date();
+  return dataDoDia(`${n.getFullYear()}-${String(n.getMonth() + 1).padStart(2, "0")}-${String(n.getDate()).padStart(2, "0")}`);
 };
 
 export const formatarDataCurta = (iso) => {
