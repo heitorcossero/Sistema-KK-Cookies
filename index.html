@@ -156,17 +156,6 @@
 
         <div class="grid-2">
           <section class="card">
-            <div class="card-head"><h2>Insumos em estoque</h2></div>
-            <ul id="lista-estoque" class="lista-estoque"></ul>
-          </section>
-          <section class="card">
-            <div class="card-head"><h2>Cookies no freezer</h2></div>
-            <ul id="lista-congelados" class="lista-estoque"></ul>
-          </section>
-        </div>
-
-        <div class="grid-2">
-          <section class="card">
             <div class="card-head"><h2>Entrada de compras</h2></div>
             <form id="form-entrada" class="form">
               <label><span>Insumo</span><select id="entrada-nome" required><option value="">Carregando…</option></select></label>
@@ -212,6 +201,17 @@
               <label><span>Quantidade a retirar</span><input type="number" id="saida-manual-qtd" step="any" min="0" required /></label>
               <button type="submit" class="btn btn-danger">Retirar do estoque</button>
             </form>
+          </section>
+        </div>
+
+        <div class="grid-2">
+          <section class="card">
+            <div class="card-head"><h2>Insumos em estoque</h2></div>
+            <ul id="lista-estoque" class="lista-estoque"></ul>
+          </section>
+          <section class="card">
+            <div class="card-head"><h2>Cookies no freezer</h2></div>
+            <ul id="lista-congelados" class="lista-estoque"></ul>
           </section>
         </div>
 
