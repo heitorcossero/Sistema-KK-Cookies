@@ -31,6 +31,8 @@ async function init() {
         t.setAttribute("aria-selected", String(ativa));
       });
       document.querySelectorAll(".tab-panel").forEach(p => p.classList.toggle("active", p.id === `panel-${nome}`));
+      const titulo = document.getElementById("titulo-pagina");
+      if (titulo) titulo.textContent = tab.dataset.titulo || "";
       renderizar();
     };
   });

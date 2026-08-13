@@ -1,6 +1,7 @@
 // Renderização de todas as telas
 import { state, initSupabase, calcularCustoReceita } from "./data.js";
 import { MARKUP } from "./config.js";
+import { desenharGraficoFaturamento } from "./chart.js";
 import {
   escapeHtml, formatarMoeda, formatarMoedaLonga, formatarQtd,
   formatarData, formatarDataCurta, isMesAtual, getNomeMesAtual
@@ -120,11 +121,44 @@ function renderClientes() {
   }).join("") || '<p class="vazio">Nenhum cliente ainda. Cadastre o primeiro no formulário acima.</p>';
 }
 
+// Ícones do extrato, por tipo de movimentação
+const ICONES_MOV = {
+  compra: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M3 4h2l2.4 11h11.2L21 8H6.5M9.5 20a1 1 0 100-2 1 1 0 000 2zM17.5 20a1 1 0 100-2 1 1 0 000 2z"/></svg>',
+  producao: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M5 11a7 7 0 0114 0v2H5v-2zM3 16h18M8 8l1-2M12 7V5M16 8l-1-2"/></svg>',
+  congelado: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><path d="M12 2v20M4 6l16 12M20 6L4 18M12 5l-2-2M12 5l2-2M12 19l-2 2M12 19l2 2"/></svg>',
+  saida: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M12 4v12M6 12l6 6 6-6"/></svg>'
+};
+
+// Valor à direita da linha do extrato: dinheiro com sinal quando há, quantidade quando não
+function valorMovimentacao(h) {
+  if (h.tipo === "producao") {
+    const v = Number(h.faturamento) || Number(h.lucro) || 0;
+    return v ? `<span class="mov-valor pos">+${formatarMoeda(v)}</span>` : "";
+  }
+  if (h.tipo === "compra") {
+    const det = h.detalhes_ingredientes || h.detalhesIngredientes || {};
+    const v = Number(det.preco || h.valor || 0);
+    return v ? `<span class="mov-valor neg">−${formatarMoeda(v)}</span>` : "";
+  }
+  if (h.tipo === "congelado") {
+    const q = Number(h.quantidade) || 0;
+    return `<span class="mov-valor neutro">${q > 0 ? "+" : "−"}${Math.abs(q)} un</span>`;
+  }
+  if (h.tipo === "saida") {
+    return `<span class="mov-valor neutro">−${formatarQtd(h.quantidade)}</span>`;
+  }
+  return "";
+}
+
 function renderHistorico() {
   const itemHtml = (h) => `
     <li>
-      <span class="quando">${formatarData(h.quando)}</span>
-      <span class="texto">${escapeHtml(h.texto)}</span>
+      <span class="mov-icone ${escapeHtml(h.tipo || "")}" aria-hidden="true">${ICONES_MOV[h.tipo] || ICONES_MOV.saida}</span>
+      <span class="mov-corpo">
+        <span class="mov-texto">${escapeHtml(h.texto)}</span>
+        <span class="mov-quando">${formatarData(h.quando)}</span>
+      </span>
+      ${valorMovimentacao(h)}
       <button type="button" class="btn-mini" data-action="desfazer" data-id="${h.id}">Desfazer</button>
     </li>`;
 
@@ -341,15 +375,21 @@ function renderResumo() {
   const elSabores = el("lista-desempenho-sabores");
   if (elSabores) {
     const rank = Object.entries(sabores).sort((a, b) => b[1] - a[1]);
+    const maxQtd = rank.length ? rank[0][1] : 1;
     elSabores.innerHTML = rank.length
-      ? rank.map(([nome, qtd], i) => `
+      ? rank.map(([nome, qtd]) => `
           <div class="sabor-row">
-            <span class="sabor-pos">${i + 1}º</span>
-            <span class="sabor-nome">${escapeHtml(nome)}</span>
-            <span class="sabor-qtd">${qtd} un</span>
+            <div class="sabor-topo">
+              <span class="sabor-nome">${escapeHtml(nome)}</span>
+              <span class="sabor-qtd">${qtd} un</span>
+            </div>
+            <div class="sabor-trilha"><div class="sabor-barra" style="width:${Math.max(4, (qtd / maxQtd) * 100)}%"></div></div>
           </div>`).join("")
       : '<p class="vazio">Nenhum pedido com entrega neste mês ainda.</p>';
   }
+
+  // 5. Gráfico de faturamento (últimos 30 dias)
+  desenharGraficoFaturamento(el("grafico-faturamento"), state.historico);
 }
 
 export function atualizarSelects() {
