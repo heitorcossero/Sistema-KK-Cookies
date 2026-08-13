@@ -1,12 +1,19 @@
-const CACHE_NAME = 'kk-cookies-v4';
+const CACHE_NAME = 'kk-cookies-v5';
 const ASSETS = [
   './',
   './index.html',
   './style.css',
-  './app.js',
-  './app_config.js',
+  './js/config.js',
+  './js/utils.js',
+  './js/data.js',
+  './js/auth.js',
+  './js/render.js',
+  './js/actions.js',
+  './js/main.js',
   './manifest.json',
-  './logo.png'
+  './assets/logo.png',
+  './assets/icone-192.png',
+  './assets/icone-512.png'
 ];
 
 self.addEventListener('install', (e) => {
@@ -26,6 +33,7 @@ self.addEventListener('activate', (e) => {
   );
 });
 
+// Rede primeiro; se estiver offline, usa o cache
 self.addEventListener('fetch', (e) => {
   if (e.request.method !== 'GET') return;
   e.respondWith(
