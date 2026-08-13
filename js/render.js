@@ -385,20 +385,36 @@ function renderListaCompras() {
 }
 
 function renderResumo() {
-  // 1. Valor em estoque (insumos + freezer a preço de custo)
-  let vEstoque = 0;
+  // 1. Valor em estoque, tudo a preço de custo: insumos + cookies no freezer
+  let vInsumos = 0;
   state.itens.forEach(it => {
-    vEstoque += (Number(it.quantidade) || 0) * (Number(it.custoMedio) || 0);
+    vInsumos += (Number(it.quantidade) || 0) * (Number(it.custoMedio) || 0);
   });
+
+  // O freezer é somado duas vezes, com sentidos diferentes: a custo, para o
+  // valor investido; a preço de venda, para o potencial. O preço de venda é um
+  // dado real da receita, então estimá-lo por markup só perderia precisão.
+  let vFreezerCusto = 0;
+  let vFreezerVenda = 0;
   Object.entries(state.congelados).forEach(([recId, qtd]) => {
     const r = state.receitas.find(rec => rec.id === recId);
     const q = Number(qtd) || 0;
-    if (r && q > 0) {
-      vEstoque += (calcularCustoReceita(r) / (Number(r.rendimento) || 1)) * q;
-    }
+    if (!r || q <= 0) return;
+    const rend = Number(r.rendimento) || 1;
+    const custoUnit = calcularCustoReceita(r) / rend;
+    const vendaUnit = (Number(r.precoVenda) || 0) / rend;
+    vFreezerCusto += custoUnit * q;
+    // sabor ainda sem preço de venda cadastrado: cai no markup, para não zerar
+    vFreezerVenda += (vendaUnit > 0 ? vendaUnit : custoUnit * MARKUP) * q;
   });
 
-  // 2. Faturamento realizado (produções registradas no histórico)
+  const vEstoque = vInsumos + vFreezerCusto;
+
+  // 2. Potencial de venda: o insumo ainda precisa virar cookie, então é
+  // estimativa por markup. O cookie pronto vale o preço de venda do sabor.
+  const potencialVenda = vInsumos * MARKUP + vFreezerVenda;
+
+  // 3. Faturamento realizado (produções registradas no histórico)
   const faturamentoRealizado = (state.historico || []).reduce((acc, h) => {
     if (h.tipo === "producao") return acc + (Number(h.faturamento) || Number(h.lucro) || 0);
     return acc;
@@ -409,11 +425,15 @@ function renderResumo() {
   const elF = el("lucro-producoes");
   if (elF) elF.textContent = formatarMoeda(faturamentoRealizado);
   const elP = el("lucro-markup-estoque");
-  if (elP) elP.textContent = formatarMoeda(vEstoque * MARKUP);
+  if (elP) elP.textContent = formatarMoeda(potencialVenda);
   const elHintMarkup = el("hint-markup");
-  if (elHintMarkup) elHintMarkup.textContent = `Lucro estimado com markup ${MARKUP}`;
+  if (elHintMarkup) {
+    elHintMarkup.textContent = vFreezerVenda > 0
+      ? `Insumos com markup ${MARKUP} e freezer a preço de venda`
+      : `Insumos em estoque com markup ${MARKUP}`;
+  }
 
-  // 3. Média de cookies por pedido (geral)
+  // 4. Média de cookies por pedido (geral)
   let totalCookies = 0;
   state.encomendas.forEach(e => {
     (e.produtos || []).forEach(p => { totalCookies += Number(p.quantidade || 0); });
@@ -425,7 +445,7 @@ function renderResumo() {
       : "0 un";
   }
 
-  // 4. Sabores mais pedidos NO MÊS ATUAL (usa a data de entrega; sem data, usa a de criação)
+  // 5. Sabores mais pedidos NO MÊS ATUAL (usa a data de entrega; sem data, usa a de criação)
   const titulo = el("titulo-desempenho");
   if (titulo) titulo.textContent = `Sabores mais pedidos em ${getNomeMesAtual()}`;
 
@@ -455,7 +475,7 @@ function renderResumo() {
       : vazio("Nenhum pedido neste mês", "O ranking usa a data de entrega dos pedidos do mês corrente.");
   }
 
-  // 5. Gráfico de faturamento (últimos 30 dias)
+  // 6. Gráfico de faturamento (últimos 30 dias)
   desenharGraficoFaturamento(el("grafico-faturamento"), state.historico);
 }
 
