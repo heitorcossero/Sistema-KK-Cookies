@@ -1,5 +1,5 @@
 // Renderização de todas as telas
-import { state, initSupabase, calcularCustoReceita, conexao } from "./data.js";
+import { state, initSupabase, calcularCustoReceita, conexao, totalPendentes } from "./data.js";
 import { MARKUP, CATEGORIAS, nomeCategoria, nomeForma, naturezaCategoria } from "./config.js";
 import { desenharGraficoFaturamento, desenharFluxoCaixa } from "./chart.js";
 import {
@@ -59,9 +59,15 @@ function renderSyncStatus() {
   const status = el("sync-status");
   if (!status) return;
   const temBiblioteca = !!initSupabase();
+  const presas = totalPendentes();
 
   let rotulo, dica;
-  if (!temBiblioteca) {
+  if (presas) {
+    // Pendência manda no selo: dizer "Sincronizado" com alterações presas no
+    // aparelho é justamente a mentira que fez o trabalho de um dia sumir.
+    rotulo = `${presas} não enviada${presas > 1 ? "s" : ""}`;
+    dica = "Estas alterações estão salvas só neste aparelho e continuam sendo reenviadas.";
+  } else if (!temBiblioteca) {
     rotulo = "Modo local";
     dica = "Sem a conexão com a nuvem — os lançamentos ficam só neste aparelho.";
   } else if (conexao.ok) {
@@ -74,8 +80,19 @@ function renderSyncStatus() {
 
   status.textContent = rotulo;
   status.title = dica;
-  status.classList.toggle("ok", temBiblioteca && conexao.ok);
-  status.classList.toggle("erro", temBiblioteca && !conexao.ok);
+  status.classList.toggle("ok", temBiblioteca && conexao.ok && !presas);
+  status.classList.toggle("erro", presas > 0 || (temBiblioteca && !conexao.ok));
+
+  // Faixa de aviso: o selo do topo é discreto demais para algo que pode
+  // custar um dia de trabalho.
+  const aviso = el("aviso-pendentes");
+  if (aviso) {
+    aviso.classList.toggle("hidden", !presas);
+    const texto = el("aviso-pendentes-texto");
+    if (texto && presas) {
+      texto.textContent = `${presas} alteração${presas > 1 ? "ões" : ""} ainda não chegou à nuvem — está guardada neste aparelho. Não limpe os dados do navegador até isso sumir.`;
+    }
+  }
 }
 
 // ============================================================

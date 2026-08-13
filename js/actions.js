@@ -1,5 +1,5 @@
 // Ações do usuário: formulários, botões e eventos delegados
-import { state, salvar, apagarDaNuvem, calcularCustoReceita, migrarParaNuvem } from "./data.js";
+import { state, salvar, apagarDaNuvem, calcularCustoReceita, migrarParaNuvem, montarBackup, restaurarBackup, sincronizarPendentes } from "./data.js";
 import { renderizar, novaLinhaIngrediente, novaLinhaProduto, filtroFinanceiro, atualizarCategorias } from "./render.js";
 import { uid, toast, confirmar, escapeHtml, formatarMoeda, formatarQtd, dataDoDia, isoDeHojeLocal } from "./utils.js";
 import { CATEGORIAS, FORMAS_PAGAMENTO, nomeCategoria } from "./config.js";
@@ -1084,8 +1084,64 @@ function configurarFormularios() {
     );
     if (!ok) return;
     toast("Enviando…");
-    const sucesso = await migrarParaNuvem();
-    toast(sucesso ? "Dados enviados para a nuvem!" : "Erro ao enviar. Verifique a internet.", !sucesso);
+    // O resultado vem tabela por tabela: dizer só "erro ao enviar" escondia
+    // qual parte o banco recusou, que é justamente o que precisa ser visto.
+    const { ok: tudoOk, falhas } = await migrarParaNuvem();
+    renderizar();
+    toast(tudoOk ? "Dados enviados para a nuvem!" : `A nuvem recusou: ${[...new Set(falhas)].join(", ")}.`, !tudoOk);
+  };
+
+  // --- Cópia de segurança ---
+  el("btn-backup").onclick = () => {
+    const dados = JSON.stringify(montarBackup(), null, 2);
+    const url = URL.createObjectURL(new Blob([dados], { type: "application/json" }));
+    const a = document.createElement("a");
+    const hoje = new Date().toISOString().slice(0, 10);
+    a.href = url;
+    a.download = `backup-kk-cookies-${hoje}.json`;
+    a.click();
+    URL.revokeObjectURL(url);
+    toast("Cópia de segurança baixada!");
+  };
+
+  el("btn-restaurar").onclick = () => el("arquivo-backup").click();
+
+  el("arquivo-backup").onchange = async (ev) => {
+    const arquivo = ev.target.files?.[0];
+    ev.target.value = ""; // permite escolher o mesmo arquivo de novo
+    if (!arquivo) return;
+
+    let dados;
+    try {
+      dados = JSON.parse(await arquivo.text());
+    } catch {
+      toast("Arquivo inválido — não parece uma cópia do sistema.", true);
+      return;
+    }
+
+    const contar = (x) => Array.isArray(dados[x]) ? dados[x].length : 0;
+    const ok = await confirmar(
+      `O arquivo tem ${contar("itens")} insumos, ${contar("receitas")} receitas, ${contar("clientes")} clientes e ${contar("historico")} lançamentos.\n\nIsso entra por cima do que está no sistema e sobe para a nuvem. O que só existe aqui hoje continua.`,
+      { titulo: "Restaurar cópia", botao: "Restaurar" }
+    );
+    if (!ok) return;
+
+    toast("Restaurando…");
+    try {
+      const { ok: tudoOk, falhas } = await restaurarBackup(dados);
+      renderizar();
+      toast(tudoOk ? "Restaurado e enviado para a nuvem!" : `Restaurado aqui, mas a nuvem recusou: ${[...new Set(falhas)].join(", ")}.`, !tudoOk);
+    } catch (err) {
+      console.error(err);
+      toast("Não foi possível restaurar esse arquivo.", true);
+    }
+  };
+
+  el("btn-tentar-sincronizar").onclick = async () => {
+    toast("Reenviando…");
+    const { enviadas, presas } = await sincronizarPendentes({ silencioso: false });
+    renderizar();
+    if (!enviadas) toast(presas ? "A nuvem ainda está recusando. Veja o console (F12) para o motivo." : "Nada pendente.", presas > 0);
   };
 }
 

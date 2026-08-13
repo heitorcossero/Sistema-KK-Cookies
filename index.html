@@ -84,6 +84,15 @@
         </div>
       </header>
 
+      <!-- Faixa de alterações que não chegaram à nuvem. Fica em todas as
+           abas de propósito: é o aviso que faltava quando um dia inteiro de
+           lançamentos ficou preso no aparelho. -->
+      <div id="aviso-pendentes" class="aviso-pendentes hidden" role="alert">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 9v4M12 17h.01M10.3 3.9L1.8 18a2 2 0 001.7 3h17a2 2 0 001.7-3L13.7 3.9a2 2 0 00-3.4 0z"/></svg>
+        <span id="aviso-pendentes-texto"></span>
+        <button type="button" id="btn-tentar-sincronizar" class="btn btn-ghost">Tentar agora</button>
+      </div>
+
       <!-- ===================== ABA RESUMO ===================== -->
       <div id="panel-resumo" class="tab-panel active" role="tabpanel" aria-labelledby="tab-resumo">
         <div class="resumo-grid">
@@ -147,8 +156,16 @@
 
         <section class="card card-wide">
           <details class="concluidos" style="margin-top:0; border-top:none; padding-top:0">
-            <summary>Enviar dados guardados neste aparelho</summary>
-            <p class="muted-small" style="margin-top:var(--s3)">Use apenas se registrou algo com o aparelho sem internet e esses lançamentos não apareceram na nuvem.</p>
+            <summary>Cópia de segurança e envio para a nuvem</summary>
+
+            <p class="muted-small" style="margin-top:var(--s3)">Baixe um arquivo com tudo que está no sistema. Guarde de vez em quando: é o que salva o dia se a nuvem recusar alguma coisa.</p>
+            <button type="button" id="btn-backup" class="btn btn-ghost" style="width:100%">Baixar cópia de segurança</button>
+
+            <p class="muted-small" style="margin-top:var(--s4)">Restaurar de um arquivo baixado antes. O que estiver no arquivo entra por cima; o que só existe aqui continua.</p>
+            <input type="file" id="arquivo-backup" accept=".json,application/json" hidden />
+            <button type="button" id="btn-restaurar" class="btn btn-ghost" style="width:100%">Restaurar de um arquivo</button>
+
+            <p class="muted-small" style="margin-top:var(--s4)">Use apenas se registrou algo com o aparelho sem internet e esses lançamentos não apareceram na nuvem.</p>
             <button type="button" id="btn-migrar" class="btn btn-ghost" style="width:100%">Enviar para a nuvem</button>
           </details>
         </section>

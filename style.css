@@ -973,6 +973,30 @@ h1, h2, h3, h4 {
 
 .alertas-box li + li { margin-top: 2px; }
 
+/* Faixa de alterações presas no aparelho. Usa o vermelho da marca, e não o
+   âmbar dos avisos de estoque, porque aqui há risco de perder dado. */
+.aviso-pendentes {
+  display: flex;
+  align-items: center;
+  gap: var(--s3);
+  padding: var(--s3) var(--s4);
+  margin-bottom: var(--s5);
+  background: var(--vermelho-fundo);
+  border: 1px solid rgba(224, 148, 132, 0.35);
+  border-radius: var(--r-lg);
+  font-size: 0.86rem;
+  color: var(--tinta);
+}
+.aviso-pendentes.hidden { display: none; }
+.aviso-pendentes svg { width: 20px; height: 20px; flex-shrink: 0; color: var(--vermelho); }
+.aviso-pendentes span { flex: 1; }
+.aviso-pendentes .btn { flex-shrink: 0; padding: var(--s2) var(--s4); font-size: 0.82rem; }
+
+@media (max-width: 640px) {
+  .aviso-pendentes { flex-wrap: wrap; }
+  .aviso-pendentes .btn { width: 100%; }
+}
+
 /* =========================================================
    LISTAS DE ESTOQUE
    ========================================================= */

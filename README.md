@@ -14,6 +14,14 @@ Sistema interno da KK Cookies para controle de estoque, receitas, encomendas e c
 - **Clientes** — cadastro com WhatsApp, notas, histórico de pedidos e total já comprado.
 - **Cadastros** — insumos e receitas (ingredientes, rendimento e preço de venda).
 
+## Nada se perde
+
+Toda gravação que a nuvem recusar entra numa fila guardada no aparelho e é reenviada ao abrir o app, quando a internet volta e de minuto em minuto. Enquanto houver algo preso, uma faixa vermelha avisa na tela e o selo do topo mostra quantas alterações faltam — antes ele dizia "Sincronizado" mesmo com o trabalho inteiro parado no navegador.
+
+A carga da nuvem também nunca apaga o que está no aparelho: uma tabela que o banco recusar é ignorada em vez de virar lista vazia, e o que ainda não subiu é reaplicado por cima do que veio.
+
+No Resumo, em *Cópia de segurança*, dá para baixar um arquivo com tudo e restaurá-lo depois.
+
 ## Tecnologia
 
 - HTML, CSS e JavaScript puro (módulos ES), sem build.
