@@ -1,12 +1,18 @@
 // Ações do usuário: formulários, botões e eventos delegados
 import { state, salvar, apagarDaNuvem, calcularCustoReceita, ehRecheio, receitaDoInsumo, migrarParaNuvem, montarBackup, restaurarBackup, sincronizarPendentes } from "./data.js";
-import { renderizar, novaLinhaIngrediente, novaLinhaProduto, filtroFinanceiro, atualizarCategorias } from "./render.js";
+import { renderizar, novaLinhaIngrediente, novaLinhaProduto, novaLinhaVenda, htmlPreviaVenda, filtroFinanceiro, atualizarCategorias } from "./render.js";
 import { uid, toast, confirmar, escapeHtml, formatarMoeda, formatarQtd, dataDoDia, isoDeHojeLocal } from "./utils.js";
 import { CATEGORIAS, FORMAS_PAGAMENTO, nomeCategoria } from "./config.js";
-import { PERIODOS, hojeChave, vencimentoNesteMes } from "./finance.js";
+import { PERIODOS, hojeChave, vencimentoNesteMes, resumoVenda } from "./finance.js";
 import { logout } from "./auth.js";
 
 const el = (id) => document.getElementById(id);
+
+// A mesma lista de formas de pagamento serve o lançamento manual, o
+// recebimento de pedido e a venda avulsa.
+const opcoesDeFormaPagamento = () =>
+  '<option value="">Não informar</option>' +
+  FORMAS_PAGAMENTO.map(f => `<option value="${f.id}">${escapeHtml(f.nome)}</option>`).join("");
 
 // Envio de formulário à prova de toque duplo: enquanto o salvamento não
 // termina, o formulário fica travado. Sem isso, um segundo toque no celular
@@ -267,6 +273,47 @@ async function excluirLancamento(id) {
   await salvar();
   renderizar();
   toast("Lançamento excluído.");
+}
+
+// Excluir uma venda avulsa devolve ao freezer o que ela tirou — os cookies só
+// saíram de lá por causa deste registro. O lançamento no financeiro NÃO é
+// apagado junto: lá o dinheiro vive por conta própria, e sumir com uma entrada
+// sem você mandar seria justamente o tipo de surpresa que a regra evita.
+async function excluirVenda(id) {
+  const v = state.vendas.find(x => x.id === id);
+  if (!v) return;
+
+  const partes = [`${v.lugar || "Venda avulsa"} — ${formatarMoeda(v.valor)}`];
+  if (v.baixou_freezer) {
+    const lista = (v.itens || []).map(i => {
+      const r = state.receitas.find(x => x.id === i.receitaId);
+      return `${i.quantidade} un ${r?.nome || "Cookie"}`;
+    }).join(", ");
+    partes.push(`Volta para o freezer: ${lista}.`);
+  }
+  if (v.financeiro_enviado) {
+    partes.push("A entrada no Financeiro continua lá. Se quiser tirar, apague pelo extrato.");
+  }
+
+  const ok = await confirmar(partes.join("\n\n"), { titulo: "Excluir venda", botao: "Excluir" });
+  if (!ok) return;
+
+  const tocados = [];
+  if (v.baixou_freezer) {
+    for (const i of (v.itens || [])) {
+      state.congelados[i.receitaId] = (state.congelados[i.receitaId] || 0) + (Number(i.quantidade) || 0);
+      tocados.push(i.receitaId);
+    }
+  }
+
+  state.vendas = state.vendas.filter(x => x.id !== id);
+  await apagarDaNuvem("vendas", id);
+  for (const recId of tocados) {
+    await salvar("congelados", { receita_id: recId, quantidade: state.congelados[recId] });
+  }
+  await salvar();
+  renderizar();
+  toast(v.baixou_freezer ? "Venda excluída e cookies devolvidos ao freezer." : "Venda excluída.");
 }
 
 // A conta fixa é só um lembrete: abre o formulário já preenchido para você
@@ -1118,6 +1165,162 @@ function configurarFormularios() {
     el("ingredientes-container").appendChild(novaLinhaIngrediente());
   };
 
+  // ==========================================
+  // VENDA AVULSA
+  //
+  // O outro jeito de vender: você assa, sai com os cookies e volta com
+  // dinheiro. Não tem cliente, não tem prazo e não tem esteira de produção —
+  // por isso não cabia dentro do pedido. Preenchido de uma vez, na volta.
+  // ==========================================
+
+  el("venda-forma").innerHTML = opcoesDeFormaPagamento();
+  el("venda-data").value = hojeChave();
+  el("venda-itens-container").appendChild(novaLinhaVenda());
+
+  const itensDaVenda = () => {
+    // O mesmo sabor em duas linhas é a mesma coisa somada. Sem juntar aqui, a
+    // conferência do freezer olharia cada linha isolada e diria que dá para
+    // tirar, quando somadas não dão.
+    const mapa = new Map();
+    document.querySelectorAll("#venda-itens-container .enc-linha-row").forEach(row => {
+      const receitaId = row.querySelector(".enc-prod-select")?.value;
+      const quantidade = Number(row.querySelector(".enc-prod-qtd")?.value);
+      if (!receitaId || !(quantidade > 0)) return;
+      mapa.set(receitaId, (mapa.get(receitaId) || 0) + quantidade);
+    });
+    return [...mapa].map(([receitaId, quantidade]) => ({ receitaId, quantidade }));
+  };
+
+  // O valor começa seguindo o preço de tabela e para de ser sobrescrito assim
+  // que você digita — é a mesma regra do total do pedido. Aqui ela importa
+  // ainda mais: na rua você dá desconto, faz combo, arredonda para não ter
+  // troco, e é essa diferença que o sistema precisa enxergar.
+  const atualizarPreviaVenda = () => {
+    const campo = el("venda-valor");
+    if (!campo) return;
+    const itens = itensDaVenda();
+    const tabela = resumoVenda(itens, 0).tabela;
+    const manual = campo.dataset.manual === "1";
+
+    if (!manual) campo.value = tabela > 0 ? tabela.toFixed(2) : "";
+
+    const r = resumoVenda(itens, Number(campo.value));
+    const diferente = manual && tabela > 0 && Math.abs(r.valor - tabela) > 0.005;
+    el("venda-total-sugerido").textContent = diferente ? `Preço de tabela: ${formatarMoeda(tabela)}` : "";
+    el("venda-dica-total").classList.toggle("hidden", !diferente);
+
+    const box = el("venda-previa");
+    const html = htmlPreviaVenda(r, { conferirFreezer: el("venda-baixar-freezer").checked });
+    box.innerHTML = html;
+    box.classList.toggle("hidden", !html);
+  };
+
+  el("venda-itens-container").addEventListener("input", atualizarPreviaVenda);
+  el("venda-itens-container").addEventListener("change", atualizarPreviaVenda);
+  el("venda-baixar-freezer").addEventListener("change", atualizarPreviaVenda);
+  el("venda-valor").addEventListener("input", () => {
+    el("venda-valor").dataset.manual = "1";
+    atualizarPreviaVenda();
+  });
+  el("btn-total-venda").onclick = () => {
+    delete el("venda-valor").dataset.manual;
+    atualizarPreviaVenda();
+  };
+  el("btn-add-item-venda").onclick = () => {
+    el("venda-itens-container").appendChild(novaLinhaVenda());
+  };
+
+  const limparFormVenda = () => {
+    el("form-venda").reset();
+    delete el("venda-valor").dataset.manual;
+    el("venda-itens-container").innerHTML = "";
+    el("venda-itens-container").appendChild(novaLinhaVenda());
+    el("venda-data").value = hojeChave();
+    el("venda-forma").value = "";
+    el("venda-previa").innerHTML = "";
+    el("venda-previa").classList.add("hidden");
+  };
+
+  aoEnviar("form-venda", async () => {
+    const itens = itensDaVenda();
+    if (!itens.length) { toast("Diga quais sabores você vendeu e quantos.", true); return; }
+
+    const valor = Number(el("venda-valor").value);
+    if (!(valor > 0)) { toast("Informe quanto você recebeu nesta saída.", true); return; }
+
+    const data = el("venda-data").value || hojeChave();
+    const lugar = el("venda-lugar").value.trim();
+    const baixar = el("venda-baixar-freezer").checked;
+    const lancar = el("venda-lancar-financeiro").checked;
+    const r = resumoVenda(itens, valor);
+
+    // Vender mais do que o freezer tem é comum e não é erro: parte da fornada
+    // pode ter ido direto para a sacola, sem passar pelo congelador. Só que
+    // então o freezer não pode ficar negativo, e você precisa saber disso.
+    if (baixar) {
+      const faltando = r.linhas.filter(l => l.quantidade > l.noFreezer);
+      if (faltando.length) {
+        const lista = faltando.map(l => `${l.nome}: vendeu ${l.quantidade} un, freezer tem ${l.noFreezer} un`).join("\n");
+        const ok = await confirmar(
+          `O freezer não tem tudo o que foi vendido:\n\n${lista}\n\nO que existe sai do freezer e o resto é tratado como fornada que não passou por lá.`,
+          { titulo: "Freezer não bate", botao: "Registrar assim mesmo" }
+        );
+        if (!ok) return;
+      }
+    }
+
+    const venda = {
+      id: uid(),
+      data,
+      lugar: lugar || null,
+      itens,
+      valor,
+      forma: el("venda-forma").value || null,
+      // O custo é congelado agora: o preço do insumo muda com o tempo e a
+      // margem desta saída tem que continuar sendo a de hoje.
+      custo: r.custo,
+      baixou_freezer: baixar,
+      financeiro_enviado: lancar,
+      created_at: new Date().toISOString()
+    };
+
+    state.vendas.unshift(venda);
+
+    // Baixa do freezer sem linha no histórico, de propósito: a própria venda é
+    // o registro, e é ela que devolve os cookies se for excluída. Uma linha
+    // com "Desfazer" ao lado devolveria o mesmo cookie duas vezes.
+    const tocados = [];
+    if (baixar) {
+      for (const i of itens) {
+        const saldo = state.congelados[i.receitaId] || 0;
+        if (saldo <= 0) continue;
+        state.congelados[i.receitaId] = Math.max(0, saldo - i.quantidade);
+        tocados.push(i.receitaId);
+      }
+    }
+
+    limparFormVenda();
+    renderizar();
+    toast(`Venda registrada — ${r.unidades} un por ${formatarMoeda(valor)}.`);
+
+    await salvar("vendas", venda);
+    for (const recId of tocados) {
+      await salvar("congelados", { receita_id: recId, quantidade: state.congelados[recId] });
+    }
+
+    // O financeiro continua sendo a única fonte da verdade do dinheiro: o
+    // lançamento só nasce porque você marcou a opção, e a partir daqui ele
+    // vive por conta própria.
+    if (lancar) {
+      await registrarLancamento({
+        tipo: "entrada", valor, categoria: "venda-avulsa",
+        descricao: lugar ? `Venda avulsa · ${lugar}` : `Venda avulsa · ${r.unidades} un`,
+        data, forma: venda.forma, origem: "venda"
+      });
+      renderizar();
+    }
+  });
+
   el("receita-tipo").onchange = aplicarTipoReceita;
   el("receita-unidade").onchange = aplicarTipoReceita;
   aplicarTipoReceita();
@@ -1129,10 +1332,8 @@ function configurarFormularios() {
   // seletores estáticos
   el("fin-periodo").innerHTML = PERIODOS.map(p => `<option value="${p.id}">${p.nome}</option>`).join("");
   el("fin-periodo").value = filtroFinanceiro.periodo;
-  const optFormas = '<option value="">Não informar</option>' +
-    FORMAS_PAGAMENTO.map(f => `<option value="${f.id}">${f.nome}</option>`).join("");
-  el("lanc-forma").innerHTML = optFormas;
-  el("receber-forma").innerHTML = optFormas;
+  el("lanc-forma").innerHTML = opcoesDeFormaPagamento();
+  el("receber-forma").innerHTML = opcoesDeFormaPagamento();
   atualizarCategorias("rec-categoria", "saida");
 
   const aplicarPeriodo = () => {
@@ -1375,8 +1576,17 @@ function configurarDelegacao() {
       case "excluir-receita": excluirReceita(id); break;
       case "editar-encomenda": editarEncomenda(id); break;
       case "excluir-encomenda": excluir("encomendas", id, "Excluir este pedido?"); break;
+      case "excluir-venda": excluirVenda(id); break;
       case "desfazer": reverterLancamento(id); break;
-      case "remover-linha": alvo.closest(".enc-linha-row")?.remove(); break;
+      case "remover-linha": {
+        const linha = alvo.closest(".enc-linha-row");
+        const container = linha?.parentElement;
+        linha?.remove();
+        // O total do pedido e a prévia da venda escutam "change" no container.
+        // Sem avisar, os dois continuariam contando a linha que acabou de sair.
+        container?.dispatchEvent(new Event("change", { bubbles: true }));
+        break;
+      }
 
       case "editar-lancamento": {
         const l = state.financeiro.find(x => x.id === id);

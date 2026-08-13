@@ -1,7 +1,7 @@
 // Cálculos do financeiro: períodos, totais e fluxo de caixa.
 // Fica separado da renderização de propósito — é aqui que mora a regra de
 // negócio do dinheiro, e ela precisa ser conferível sem abrir o navegador.
-import { state } from "./data.js";
+import { state, custoUnitarioDeReceita } from "./data.js";
 import { naturezaCategoria } from "./config.js";
 
 // ------------------------------------------------------------
@@ -207,6 +207,101 @@ export function aReceber() {
   });
   const total = pedidos.reduce((acc, e) => acc + (Number(e.valorTotal) || 0), 0);
   return { pedidos, total };
+}
+
+// ------------------------------------------------------------
+// VENDA AVULSA
+//
+// A conta de uma saída para vender. Três números diferentes que é fácil
+// confundir:
+//
+//   tabela  o que os cookies valeriam pelo preço cadastrado na receita
+//   valor   o que você recebeu de verdade — a diferença é desconto dado
+//   custo   só os ingredientes. Gás, embalagem e transporte NÃO entram
+//           aqui: eles já viraram despesa no financeiro quando foram
+//           pagos, e contá-los de novo tiraria o mesmo dinheiro duas vezes.
+//
+// Por isso o resultado se chama "sobra dos ingredientes", e não lucro: o
+// lucro de verdade é o do financeiro, que desconta tudo o mais.
+// ------------------------------------------------------------
+
+export function resumoVenda(itens = [], valorRecebido = 0) {
+  let unidades = 0, tabela = 0, custo = 0;
+
+  const linhas = (itens || []).map(i => {
+    const r = (state.receitas || []).find(x => x.id === i.receitaId);
+    const qtd = Number(i.quantidade) || 0;
+    const precoUnit = Number(r?.precoUnitario) || 0;
+    const custoUnit = custoUnitarioDeReceita(r);
+    unidades += qtd;
+    tabela += precoUnit * qtd;
+    custo += custoUnit * qtd;
+    return {
+      receitaId: i.receitaId,
+      nome: r?.nome || "Cookie",
+      quantidade: qtd,
+      precoUnit,
+      custoUnit,
+      noFreezer: Number(state.congelados?.[i.receitaId]) || 0
+    };
+  });
+
+  const valor = Number(valorRecebido) || 0;
+  const sobra = valor - custo;
+
+  return {
+    linhas, unidades, tabela, custo, valor, sobra,
+    margem: valor > 0 ? sobra / valor : 0,
+    precoMedio: unidades > 0 ? valor / unidades : 0,
+    // Positivo quer dizer desconto dado; negativo, que você vendeu acima da tabela.
+    desconto: tabela - valor
+  };
+}
+
+// Custo dos ingredientes de uma lista de itens, para congelar no momento da
+// venda. Separado do resumo porque é o único número que vai para o banco.
+export const custoDosItens = (itens = []) => resumoVenda(itens, 0).custo;
+
+// Quanto você costuma vender de cada sabor quando sai. É a resposta para
+// "quantos assar da próxima vez": média das saídas, não total do mês.
+export function mediaPorSaida(ultimas = 8) {
+  const vendas = [...(state.vendas || [])]
+    .sort((a, b) => (a.data < b.data ? 1 : a.data > b.data ? -1 : 0))
+    .slice(0, ultimas);
+  if (!vendas.length) return { saidas: 0, sabores: [], mediaValor: 0, mediaUnidades: 0 };
+
+  const mapa = {};
+  let totalValor = 0, totalUnidades = 0;
+  for (const v of vendas) {
+    totalValor += Number(v.valor) || 0;
+    for (const i of (v.itens || [])) {
+      const qtd = Number(i.quantidade) || 0;
+      totalUnidades += qtd;
+      if (!mapa[i.receitaId]) mapa[i.receitaId] = { receitaId: i.receitaId, total: 0, saidas: 0 };
+      mapa[i.receitaId].total += qtd;
+      mapa[i.receitaId].saidas++;
+    }
+  }
+
+  const sabores = Object.values(mapa)
+    // Divide pelo número de saídas em que o sabor apareceu, não pelo total de
+    // saídas: um sabor que você só leva de vez em quando não deve parecer fraco.
+    .map(s => ({ ...s, media: s.total / s.saidas }))
+    .sort((a, b) => b.media - a.media);
+
+  return {
+    saidas: vendas.length,
+    sabores,
+    mediaValor: totalValor / vendas.length,
+    mediaUnidades: totalUnidades / vendas.length
+  };
+}
+
+// Vendas avulsas de um período, da mais nova para a mais antiga.
+export function vendasDoPeriodo(inicio, fim) {
+  return (state.vendas || [])
+    .filter(v => v.data >= inicio && v.data <= fim)
+    .sort((a, b) => (a.data < b.data ? 1 : a.data > b.data ? -1 : 0));
 }
 
 // ------------------------------------------------------------

@@ -7,12 +7,25 @@ Sistema interno da KK Cookies para controle de estoque, receitas, encomendas e c
 
 ## O que ele faz
 
-- **Resumo** — valor investido em estoque, faturamento das produções, potencial de venda (markup) e ranking de sabores mais pedidos no mês.
+- **Resumo** — valor investido em estoque, faturamento das produções, potencial de venda (markup) e ranking de sabores mais vendidos no mês, somando pedidos e vendas avulsas.
 - **Estoque** — entrada de compras (com custo médio ponderado), produção de receitas (baixa os ingredientes e já guarda os cookies no freezer, ou o recheio pronto no estoque), freezer e ajustes manuais. Ao registrar a produção você informa quantos cookies a fornada rendeu de verdade — o campo já vem preenchido com o previsto pela receita, mas quem manda no freezer é o número real. Tudo com histórico e botão de desfazer.
-- **Encomendas** — pedidos com esteira de produção (massa → assado → entregue), selo de pagamento à parte, valor editável para desconto ou entrega, e lista de compras consolidada que desconta estoque, freezer e o que já teve a massa feita. Marcar como entregue baixa os cookies do freezer.
+- **Pedidos** — encomendas com esteira de produção (massa → assado → entregue), selo de pagamento à parte, valor editável para desconto ou entrega, e lista de compras consolidada que desconta estoque, freezer e o que já teve a massa feita. Marcar como entregue baixa os cookies do freezer.
+- **Vendas** — o outro jeito de vender: você assa, sai com os cookies e volta com dinheiro, sem cliente e sem prazo. Uma tela só, preenchida na volta. Ver [Venda avulsa](#venda-avulsa).
 - **Financeiro** — a única fonte da verdade do dinheiro: entradas, saídas, saldo em caixa, fluxo do período, gastos por categoria, contas fixas e extrato. Estoque e Encomendas **não** alimentam estes números sozinhos; só criam lançamentos quando você marca a opção de enviar. Categorias carregam a natureza do dinheiro (despesa, investimento, retirada de lucro, venda, aporte), que é o que separa o caixa do lucro.
 - **Clientes** — cadastro com WhatsApp, notas, histórico de pedidos e total já comprado.
 - **Cadastros** — insumos e receitas (ingredientes, preço de venda de cada cookie e rendimento médio esperado, que serve de estimativa para a lista de compras e de sugestão na produção; o card mostra ao lado quanto as últimas fornadas renderam de verdade).
+
+## Venda avulsa
+
+Um pedido tem cliente, quantidade combinada, data marcada e o dinheiro depois. Uma venda avulsa não tem nada disso: você chuta a quantidade, sai para vender e recebe na hora. São duas coisas diferentes, e por isso cada uma tem a sua aba.
+
+O registro é feito de uma vez, na volta: o dia, onde foi, quanto saiu de cada sabor e **quanto você recebeu de verdade**. O valor começa seguindo o preço de tabela das receitas e para de ser sobrescrito assim que você digita — é essa diferença que revela o desconto que você deu na rua, e que numa linha solta de faturamento ficaria invisível.
+
+Antes de confirmar, a tela mostra o resultado da saída: cookies vendidos, preço médio praticado contra o de tabela, custo dos ingredientes e a sobra. *Sobra* não é lucro: só os ingredientes entram nessa conta, porque gás, embalagem e transporte já viraram despesa no Financeiro quando foram pagos, e contá-los de novo tiraria o mesmo dinheiro duas vezes. O custo fica congelado no dia da venda, para a margem daquela saída continuar sendo a daquele dia mesmo depois de o insumo mudar de preço.
+
+Duas caixinhas mandam nos efeitos, e nenhuma acontece escondida: **tirar do freezer** (se o freezer não tiver tudo, o sistema mostra o que falta e pergunta — parte da fornada pode ter ido direto para a sacola) e **lançar no Financeiro**, que respeita a regra de ouro: o dinheiro só entra lá porque você mandou, e a partir daí vive por conta própria. Excluir a venda devolve os cookies ao freezer; o lançamento no Financeiro continua onde está.
+
+O card **Quanto levar** mostra a média do que você vende de cada sabor quando sai — o número para decidir o tamanho da próxima fornada.
 
 ## Massa e recheio
 

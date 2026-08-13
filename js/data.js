@@ -7,6 +7,8 @@ export const state = {
   receitas: [],
   clientes: [],
   encomendas: [],
+  // Vendas avulsas: a fornada que sai para vender sem pedido e sem cliente.
+  vendas: [],
   historico: [],
   congelados: {},
   // Financeiro: a fonte da verdade do dinheiro. Estoque e encomendas não
@@ -39,6 +41,7 @@ const LISTAS = {
   receitas: "receitas",
   clientes: "clientes",
   encomendas: "encomendas",
+  vendas: "vendas",
   historico: "historico",
   financeiro: "financeiro",
   recorrentes: "recorrentes"
@@ -204,11 +207,12 @@ export async function carregar() {
   const s = initSupabase();
   if (!s) { aplicarPendentes(); return; }
   try {
-    const [it, cl, rec, enc, hist, cong, fin, recor, conf] = await Promise.all([
+    const [it, cl, rec, enc, vend, hist, cong, fin, recor, conf] = await Promise.all([
       s.from("itens").select("*"),
       s.from("clientes").select("*"),
       s.from("receitas").select("*"),
       s.from("encomendas").select("*"),
+      s.from("vendas").select("*").order("data", { ascending: false }).limit(2000),
       // O histórico alimenta o extrato, o gráfico e o faturamento acumulado.
       // Com um teto baixo, lançamentos antigos sumiam da soma e o faturamento
       // encolhia sozinho com o tempo.
@@ -246,6 +250,7 @@ export async function carregar() {
       unidade: r.unidade || "g"
     }));
     if (veio(enc, "encomendas")) state.encomendas = enc.data.map(e => ({ ...e, valorTotal: Number(e.valor_total), clienteId: e.cliente_id, dataEntrega: e.data_entrega }));
+    if (veio(vend, "vendas")) state.vendas = vend.data.map(v => ({ ...v, valor: Number(v.valor), custo: Number(v.custo) || 0 }));
     if (veio(hist, "historico")) state.historico = hist.data;
     if (veio(cong, "congelados")) {
       state.congelados = {};
@@ -367,6 +372,14 @@ export function calcularCustoReceita(r) {
   }, 0);
 }
 
+// Quanto custa UM cookie em ingredientes. O rendimento da receita é a média
+// esperada — é a mesma conta que o Resumo usa para avaliar o freezer e que a
+// venda avulsa usa para saber a margem do dia.
+export function custoUnitarioDeReceita(r) {
+  if (!r) return 0;
+  return calcularCustoReceita(r) / (Number(r.rendimento) || 1);
+}
+
 // O recheio pronto é um insumo como qualquer outro, e é justamente por isso
 // que o custo, a baixa de estoque e o desfazer continuam funcionando sem saber
 // que ele existe. Estas duas funções são a única ponte entre os dois mundos.
@@ -394,6 +407,7 @@ export async function migrarParaNuvem() {
     ["clientes", state.clientes],
     ["receitas", state.receitas],
     ["encomendas", state.encomendas],
+    ["vendas", state.vendas],
     ["historico", state.historico],
     ["congelados", cong],
     ["financeiro", state.financeiro],
@@ -424,6 +438,7 @@ export function montarBackup() {
     receitas: state.receitas,
     clientes: state.clientes,
     encomendas: state.encomendas,
+    vendas: state.vendas,
     historico: state.historico,
     congelados: state.congelados,
     financeiro: state.financeiro,
@@ -450,6 +465,7 @@ export async function restaurarBackup(dados, { substituir = false } = {}) {
   state.receitas = juntar(state.receitas, dados.receitas);
   state.clientes = juntar(state.clientes, dados.clientes);
   state.encomendas = juntar(state.encomendas, dados.encomendas);
+  state.vendas = juntar(state.vendas, dados.vendas);
   state.historico = juntar(state.historico, dados.historico);
   state.financeiro = juntar(state.financeiro, dados.financeiro);
   state.recorrentes = juntar(state.recorrentes, dados.recorrentes);

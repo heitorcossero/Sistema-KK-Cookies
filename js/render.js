@@ -1,11 +1,11 @@
 // Renderização de todas as telas
-import { state, initSupabase, calcularCustoReceita, ehRecheio, receitaDoInsumo, conexao, totalPendentes, estaOffline } from "./data.js";
+import { state, initSupabase, calcularCustoReceita, custoUnitarioDeReceita, ehRecheio, receitaDoInsumo, conexao, totalPendentes, estaOffline } from "./data.js";
 import { MARKUP, CATEGORIAS, nomeCategoria, nomeForma, naturezaCategoria } from "./config.js";
 import { desenharGraficoFaturamento, desenharFluxoCaixa } from "./chart.js";
 import {
   PERIODOS, intervaloDoPeriodo, nomeDoPeriodo, resumoFinanceiro, saldoEmCaixa,
   porCategoria, fluxoDiario, saldoAntesDe, aReceber, recorrentesPendentes,
-  vencimentoNesteMes, hojeChave
+  vencimentoNesteMes, hojeChave, resumoVenda, mediaPorSaida, vendasDoPeriodo
 } from "./finance.js";
 import {
   escapeHtml, formatarMoeda, formatarMoedaLonga, formatarMoedaExata, formatarQtd,
@@ -44,6 +44,7 @@ export function renderizar() {
     renderClientes();
     renderHistorico();
     renderEncomendas();
+    renderVendas();
     renderReceitas();
     renderInsumosTabela();
     renderListaCompras();
@@ -103,6 +104,14 @@ function renderSyncStatus() {
 // ============================================================
 // FINANCEIRO
 // ============================================================
+
+// De onde veio o lançamento. "manual" fica de fora de propósito: é o normal,
+// e uma etiqueta em toda linha vira ruído.
+const ORIGEM_LANCAMENTO = {
+  estoque: "do estoque",
+  pedido: "do pedido",
+  venda: "da venda avulsa"
+};
 
 const SETA_ENTRADA = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 19V5M5 12l7-7 7 7"/></svg>';
 const SETA_SAIDA = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 5v14M19 12l-7 7-7-7"/></svg>';
@@ -262,8 +271,8 @@ function renderExtratoFinanceiro(lista) {
   box.innerHTML = visiveis.length
     ? visiveis.map(l => {
         const entrada = l.tipo === "entrada";
-        const origem = l.origem && l.origem !== "manual"
-          ? `<span class="tag-origem">${l.origem === "estoque" ? "do estoque" : "do pedido"}</span>` : "";
+        const origem = ORIGEM_LANCAMENTO[l.origem]
+          ? `<span class="tag-origem">${ORIGEM_LANCAMENTO[l.origem]}</span>` : "";
         return `<li>
           <span class="mov-icone ${entrada ? "producao" : "compra"}" aria-hidden="true">${entrada ? SETA_ENTRADA : SETA_SAIDA}</span>
           <span class="mov-corpo">
@@ -526,6 +535,155 @@ function renderEncomendas() {
   if (resumoConcluidos) resumoConcluidos.textContent = `Pedidos entregues (${entregues.length})`;
 }
 
+// ============================================================
+// VENDAS AVULSAS
+// ============================================================
+
+// A prévia do resultado da venda. Aparece embaixo do formulário enquanto você
+// digita e de novo no card de cada venda registrada, com os mesmos números —
+// é a mesma conta, então é o mesmo desenho.
+//
+// `conferirFreezer` só faz sentido antes de gravar: depois da venda o freezer
+// já foi baixado e comparar de novo acusaria falta que não existe.
+export function htmlPreviaVenda(r, { conferirFreezer = false } = {}) {
+  if (!r.unidades) return "";
+
+  const linhas = r.linhas.filter(l => l.quantidade > 0).map(l => {
+    const falta = conferirFreezer ? Math.max(0, l.quantidade - l.noFreezer) : 0;
+    // Na venda já registrada não se mostra preço por linha: o preço da receita
+    // é o de hoje, e estampá-lo numa venda de dois meses atrás seria inventar
+    // um número que nunca foi cobrado.
+    const situacao = conferirFreezer
+      ? (falta > 0
+        ? `<span class="falta">freezer só tem ${l.noFreezer} un</span>`
+        : `freezer fica com ${l.noFreezer - l.quantidade} un`)
+      : "";
+    return `<div class="pedido-linha ${conferirFreezer && falta === 0 ? "pronto" : ""}">
+      <span><span class="qtd">${l.quantidade} un</span> ${escapeHtml(l.nome)}</span>
+      <span class="situacao">${situacao}</span>
+    </div>`;
+  }).join("");
+
+  // Preço médio abaixo da tabela é desconto dado — o número que some quando a
+  // venda vira uma linha só no financeiro.
+  const dif = r.desconto > 0.005
+    ? `<span class="venda-alerta">${formatarMoeda(r.desconto)} abaixo da tabela</span>`
+    : r.desconto < -0.005
+      ? `<span class="venda-ok">${formatarMoeda(-r.desconto)} acima da tabela</span>`
+      : "";
+
+  const numero = (rotulo, valor, extra = "") =>
+    `<div class="venda-numero"><span class="rotulo">${rotulo}</span><strong>${valor}</strong>${extra ? `<span class="extra">${extra}</span>` : ""}</div>`;
+
+  return `<div class="venda-linhas">${linhas}</div>
+    <div class="venda-numeros">
+      ${numero("Cookies vendidos", `${r.unidades} un`, r.precoMedio > 0 ? `${formatarMoeda(r.precoMedio)} cada` : "")}
+      ${numero("Recebido", formatarMoeda(r.valor), dif)}
+      ${numero("Ingredientes", formatarMoeda(r.custo), `tabela ${formatarMoeda(r.tabela)}`)}
+      ${numero("Sobra", formatarMoeda(r.sobra), r.valor > 0 ? `${(r.margem * 100).toFixed(0)}% do recebido` : "")}
+    </div>
+    <p class="venda-rodape">Sobra é o que ficou depois de pagar só os ingredientes. Gás, embalagem e transporte já saem como despesa no Financeiro — o lucro de verdade é o de lá.</p>`;
+}
+
+function cardVenda(v) {
+  const r = resumoVenda(v.itens, v.valor);
+  // O custo guardado na venda manda: ele é o do dia. Recalcular mostraria a
+  // margem de hoje numa venda de dois meses atrás.
+  const custo = Number(v.custo) || r.custo;
+  const congelado = { ...r, custo, sobra: r.valor - custo, margem: r.valor > 0 ? (r.valor - custo) / r.valor : 0 };
+
+  const etiquetas = [
+    v.forma ? escapeHtml(nomeForma(v.forma)) : "",
+    v.baixou_freezer ? "saiu do freezer" : "",
+    v.financeiro_enviado ? "no financeiro" : "fora do financeiro"
+  ].filter(Boolean).map(t => `<span class="tag-origem">${t}</span>`).join(" ");
+
+  return `<article class="card-encomenda">
+    <div class="enc-topo">
+      <div>
+        <h3>${escapeHtml(v.lugar || "Venda avulsa")}</h3>
+        <p class="enc-sub">${formatarDataCurta(v.data)} · ${congelado.unidades} un ${etiquetas}</p>
+      </div>
+      <div class="btn-row">
+        <button type="button" class="btn-mini perigo" data-action="excluir-venda" data-id="${v.id}">Excluir</button>
+      </div>
+    </div>
+    ${htmlPreviaVenda(congelado)}
+  </article>`;
+}
+
+function renderVendas() {
+  const lista = el("lista-vendas");
+  if (!lista) return;
+
+  const ordenadas = [...state.vendas].sort((a, b) => (a.data < b.data ? 1 : a.data > b.data ? -1 : 0));
+  lista.innerHTML = ordenadas.slice(0, 60).map(cardVenda).join("")
+    || vazio("Nenhuma venda avulsa registrada", "Quando você assar e sair para vender, registre aqui na volta: os cookies saem do freezer e o valor vai para o Financeiro.");
+
+  // Os lugares já usados viram sugestão, para "Feira do bairro" não virar
+  // três lugares diferentes por causa de maiúscula ou acento digitado torto.
+  const datalist = el("lugares-de-venda");
+  if (datalist) {
+    const lugares = [...new Set(state.vendas.map(v => (v.lugar || "").trim()).filter(Boolean))].sort();
+    datalist.innerHTML = lugares.map(l => `<option value="${escapeHtml(l)}"></option>`).join("");
+  }
+
+  // --- Quanto levar ---
+  const media = mediaPorSaida();
+  const rotulo = el("venda-media-rotulo");
+  if (rotulo) rotulo.textContent = media.saidas ? `últimas ${media.saidas} saída${media.saidas > 1 ? "s" : ""}` : "";
+
+  const boxMedia = el("venda-media-sabores");
+  if (boxMedia) {
+    const maior = media.sabores[0]?.media || 1;
+    boxMedia.innerHTML = media.sabores.length
+      ? media.sabores.map(s => {
+          const nome = state.receitas.find(x => x.id === s.receitaId)?.nome || "Cookie";
+          return `<div class="sabor-row">
+            <div class="sabor-topo">
+              <span class="sabor-nome">${escapeHtml(nome)}</span>
+              <span class="sabor-qtd">${s.media.toFixed(0)} un</span>
+            </div>
+            <div class="sabor-trilha"><div class="sabor-barra" style="width:${Math.max(4, (s.media / maior) * 100)}%"></div></div>
+          </div>`;
+        }).join("")
+      : vazio("Ainda sem saídas", "Depois de duas ou três vendas registradas, aparece aqui quanto de cada sabor você costuma vender.");
+  }
+
+  // --- No mês ---
+  const mes = intervaloDoPeriodo("mes-atual");
+  const doMes = vendasDoPeriodo(mes.inicio, mes.fim);
+  const totalMes = doMes.reduce((t, v) => t + (Number(v.valor) || 0), 0);
+  const unidadesMes = doMes.reduce((t, v) => t + (v.itens || []).reduce((s, i) => s + (Number(i.quantidade) || 0), 0), 0);
+  const custoMes = doMes.reduce((t, v) => t + (Number(v.custo) || 0), 0);
+
+  const elTotal = el("venda-mes-total");
+  if (elTotal) elTotal.textContent = doMes.length ? `${doMes.length} saída${doMes.length > 1 ? "s" : ""}` : "";
+
+  const boxMes = el("venda-mes-numeros");
+  if (boxMes) {
+    // Sem venda no mês o conteúdo é um aviso, e aviso não se divide em colunas.
+    boxMes.classList.toggle("venda-numeros", doMes.length > 0);
+    const numero = (rot, valor, extra = "") =>
+      `<div class="venda-numero"><span class="rotulo">${rot}</span><strong>${valor}</strong>${extra ? `<span class="extra">${extra}</span>` : ""}</div>`;
+    boxMes.innerHTML = doMes.length
+      ? numero("Recebido", formatarMoeda(totalMes), `média de ${formatarMoeda(totalMes / doMes.length)} por saída`)
+        + numero("Cookies", `${unidadesMes} un`, unidadesMes ? `${formatarMoeda(totalMes / unidadesMes)} cada` : "")
+        + numero("Ingredientes", formatarMoeda(custoMes))
+        + numero("Sobra", formatarMoeda(totalMes - custoMes), totalMes > 0 ? `${(((totalMes - custoMes) / totalMes) * 100).toFixed(0)}% do recebido` : "")
+      : vazio("Nenhuma venda avulsa este mês", "As saídas do mês aparecem aqui somadas.");
+  }
+}
+
+export function novaLinhaVenda(item = null) {
+  // Mesmas classes da linha de pedido de propósito: os seletores de sabor são
+  // preenchidos no mesmo lugar (atualizarSelects) e o botão de remover linha
+  // já é tratado pela delegação de eventos.
+  const div = novaLinhaProduto(item);
+  div.querySelector(".enc-prod-qtd")?.setAttribute("placeholder", "Vendidos");
+  return div;
+}
+
 // Média de quantos cookies as últimas fornadas realmente renderam, por receita
 // inteira. Produções antigas não têm esses campos e ficam de fora, então a
 // média só aparece depois que houver fornada registrada pelo sistema novo.
@@ -709,8 +867,7 @@ function renderResumo() {
     const r = state.receitas.find(rec => rec.id === recId);
     const q = Number(qtd) || 0;
     if (!r || q <= 0) return;
-    const rend = Number(r.rendimento) || 1;
-    const custoUnit = calcularCustoReceita(r) / rend;
+    const custoUnit = custoUnitarioDeReceita(r);
     const vendaUnit = Number(r.precoUnitario) || 0;
     vFreezerCusto += custoUnit * q;
     // sabor ainda sem preço de venda cadastrado: cai no markup, para não zerar
@@ -760,19 +917,27 @@ function renderResumo() {
       : "0 un";
   }
 
-  // 5. Sabores mais pedidos NO MÊS ATUAL (usa a data de entrega; sem data, usa a de criação)
+  // 5. Sabores mais vendidos NO MÊS ATUAL. Soma os dois caminhos de venda:
+  // pedido (pela data de entrega; sem data, a de criação) e venda avulsa. Com
+  // só os pedidos, o ranking ficava cego para tudo que você vende na rua — e
+  // era justamente por ele que se decidia o que assar.
   const titulo = el("titulo-desempenho");
-  if (titulo) titulo.textContent = `Sabores mais pedidos em ${getNomeMesAtual()}`;
+  if (titulo) titulo.textContent = `Sabores mais vendidos em ${getNomeMesAtual()}`;
 
   const sabores = {};
+  const somarSabor = (receitaId, quantidade) => {
+    const rec = state.receitas.find(r => r.id === receitaId);
+    if (rec) sabores[rec.nome] = (sabores[rec.nome] || 0) + (Number(quantidade) || 0);
+  };
+
   state.encomendas
     .filter(e => isMesAtual(e.dataEntrega || e.criado_at || e.created_at))
-    .forEach(enc => {
-      (enc.produtos || []).forEach(p => {
-        const rec = state.receitas.find(r => r.id === p.receitaId);
-        if (rec) sabores[rec.nome] = (sabores[rec.nome] || 0) + p.quantidade;
-      });
-    });
+    .forEach(enc => (enc.produtos || []).forEach(p => somarSabor(p.receitaId, p.quantidade)));
+
+  // A data da venda é "aaaa-mm-dd" e é comparada como texto: virar Date aqui
+  // reabriria a armadilha de fuso que já fez lançamento aparecer no dia errado.
+  vendasDoPeriodo(mes.inicio, mes.fim)
+    .forEach(v => (v.itens || []).forEach(i => somarSabor(i.receitaId, i.quantidade)));
 
   const elSabores = el("lista-desempenho-sabores");
   if (elSabores) {
@@ -787,7 +952,7 @@ function renderResumo() {
             </div>
             <div class="sabor-trilha"><div class="sabor-barra" style="width:${Math.max(4, (qtd / maxQtd) * 100)}%"></div></div>
           </div>`).join("")
-      : vazio("Nenhum pedido neste mês", "O ranking usa a data de entrega dos pedidos do mês corrente.");
+      : vazio("Nenhuma venda neste mês", "O ranking soma os pedidos entregues no mês e as vendas avulsas registradas.");
   }
 
   // 6. Gráfico de faturamento (últimos 30 dias)

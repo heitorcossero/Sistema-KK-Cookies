@@ -281,7 +281,7 @@ h1, h2, h3, h4 {
 
 .tab svg { width: 21px; height: 21px; flex-shrink: 0; }
 
-/* com seis abas o rótulo fica apertado em telas estreitas */
+/* com sete abas o rótulo fica apertado em telas estreitas */
 .tab .rotulo {
   max-width: 100%;
   overflow: hidden;
@@ -289,9 +289,15 @@ h1, h2, h3, h4 {
   white-space: nowrap;
 }
 
-@media (max-width: 420px) {
-  .tab { font-size: 0.56rem; padding: var(--s2) 2px; }
+@media (max-width: 460px) {
+  .tabs { gap: 0; padding-left: 2px; padding-right: 2px; }
+  .tab { font-size: 0.56rem; padding: var(--s2) 1px; }
   .tab svg { width: 19px; height: 19px; }
+}
+
+@media (max-width: 380px) {
+  .tab { font-size: 0.52rem; }
+  .tab svg { width: 18px; height: 18px; }
 }
 
 .tab:hover { color: var(--tinta-2); }
@@ -1392,6 +1398,70 @@ input[type="checkbox"]:focus-visible {
 
 .pedido-linha.pronto .situacao { color: var(--verde); }
 .pedido-linha .falta { color: var(--ambar); }
+
+/* =========================================================
+   VENDA AVULSA
+   O mesmo desenho aparece duas vezes: como prévia enquanto você
+   preenche o formulário e dentro do card de cada venda já
+   registrada. É a mesma conta, então é a mesma cara.
+   ========================================================= */
+
+.venda-previa {
+  padding: var(--s4);
+  background: var(--cacau-800);
+  border: 1px solid var(--linha);
+  border-radius: var(--r-md);
+}
+
+.venda-linhas { margin-bottom: var(--s3); }
+
+.venda-numeros {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: var(--s3) var(--s4);
+}
+
+@media (min-width: 760px) {
+  .venda-previa .venda-numeros { grid-template-columns: repeat(4, 1fr); }
+}
+
+.venda-numero { min-width: 0; }
+
+.venda-numero .rotulo {
+  display: block;
+  font-size: 0.68rem;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--tinta-3);
+}
+
+.venda-numero strong {
+  display: block;
+  margin-top: 2px;
+  font-family: var(--display);
+  font-size: 1.125rem;
+  font-weight: 700;
+  letter-spacing: -0.02em;
+  font-variant-numeric: tabular-nums;
+  color: var(--tinta);
+}
+
+.venda-numero .extra {
+  display: block;
+  font-size: 0.74rem;
+  color: var(--tinta-3);
+}
+
+.venda-alerta { color: var(--ambar); }
+.venda-ok { color: var(--verde); }
+
+.venda-rodape {
+  margin: var(--s3) 0 0;
+  font-size: 0.74rem;
+  line-height: 1.45;
+  color: var(--tinta-3);
+}
 
 .enc-meta { margin: var(--s2) 0; font-size: 0.84rem; color: var(--tinta-2); }
 .enc-meta strong { color: var(--tinta); }

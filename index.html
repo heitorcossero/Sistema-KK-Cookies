@@ -48,9 +48,13 @@
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round" aria-hidden="true"><path d="M12 3l8 4.5v9L12 21l-8-4.5v-9L12 3zM4 7.5l8 4.5 8-4.5M12 12v9"/></svg>
         <span class="rotulo">Estoque</span>
       </button>
-      <button type="button" class="tab" role="tab" aria-selected="false" aria-controls="panel-encomendas" id="tab-encomendas" data-tab="encomendas" data-titulo="Encomendas">
+      <button type="button" class="tab" role="tab" aria-selected="false" aria-controls="panel-encomendas" id="tab-encomendas" data-tab="encomendas" data-titulo="Pedidos">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 7h11v9H3zM14 10h4l3 3v3h-7M6.5 19a1.7 1.7 0 100-3.4 1.7 1.7 0 000 3.4zM17.5 19a1.7 1.7 0 100-3.4 1.7 1.7 0 000 3.4z"/></svg>
-        <span class="rotulo">Encomendas</span>
+        <span class="rotulo">Pedidos</span>
+      </button>
+      <button type="button" class="tab" role="tab" aria-selected="false" aria-controls="panel-vendas" id="tab-vendas" data-tab="vendas" data-titulo="Vendas avulsas">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 7.5h16l-1.1 11.6a2 2 0 01-2 1.9H7.1a2 2 0 01-2-1.9L4 7.5zM8.6 7.5V6a3.4 3.4 0 016.8 0v1.5"/></svg>
+        <span class="rotulo">Vendas</span>
       </button>
       <button type="button" class="tab" role="tab" aria-selected="false" aria-controls="panel-financeiro" id="tab-financeiro" data-tab="financeiro" data-titulo="Financeiro">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 8.5h18v10a1.5 1.5 0 01-1.5 1.5h-15A1.5 1.5 0 013 18.5v-10zM3 8.5l2.6-4.2a1.5 1.5 0 011.3-.8h10.2a1.5 1.5 0 011.3.8L21 8.5M16 14h2"/></svg>
@@ -302,6 +306,75 @@
           <div class="card-head"><h2>Lista de compras</h2></div>
           <p class="card-nota">O que falta comprar para atender todos os pedidos em andamento, já descontando estoque e freezer.</p>
           <div id="lista-compras-consolidada"></div>
+        </section>
+      </div>
+
+      <!-- ===================== ABA VENDAS AVULSAS ===================== -->
+      <div id="panel-vendas" class="tab-panel" role="tabpanel" aria-labelledby="tab-vendas">
+        <section class="card card-wide">
+          <div class="card-head"><h2>Registrar uma saída</h2></div>
+          <p class="card-nota">Para o dia em que você assa e sai para vender, sem pedido e sem cliente marcado. Preencha na volta: o que saiu de cada sabor e quanto entrou.</p>
+          <form id="form-venda" class="form">
+            <div class="grid-2">
+              <label><span>Dia da venda</span><input type="date" id="venda-data" required /></label>
+              <label>
+                <span>Onde foi (opcional)</span>
+                <input type="text" id="venda-lugar" list="lugares-de-venda" placeholder="Ex.: Feira do bairro" autocomplete="off" />
+                <datalist id="lugares-de-venda"></datalist>
+              </label>
+            </div>
+
+            <div id="venda-itens-container" class="enc-linhas-editor"></div>
+            <button type="button" id="btn-add-item-venda" class="btn btn-ghost">Adicionar sabor</button>
+
+            <div class="grid-2">
+              <label>
+                <span>Quanto você recebeu</span>
+                <input type="number" id="venda-valor" step="any" min="0" placeholder="R$ 0,00" required />
+                <small class="campo-dica hidden" id="venda-dica-total">
+                  <span id="venda-total-sugerido"></span>
+                  <button type="button" class="btn-mini" id="btn-total-venda">Usar o preço de tabela</button>
+                </small>
+              </label>
+              <label><span>Forma de pagamento</span><select id="venda-forma"></select></label>
+            </div>
+
+            <div id="venda-previa" class="venda-previa hidden"></div>
+
+            <label class="opcao">
+              <input type="checkbox" id="venda-baixar-freezer" checked />
+              <span>Tirar estes cookies do freezer</span>
+            </label>
+            <label class="opcao">
+              <input type="checkbox" id="venda-lancar-financeiro" checked />
+              <span>Lançar o valor recebido no Financeiro</span>
+            </label>
+
+            <button type="submit" class="btn btn-primary" id="btn-salvar-venda">Registrar venda</button>
+          </form>
+        </section>
+
+        <div class="grid-2">
+          <section class="card">
+            <div class="card-head">
+              <h2>Quanto levar</h2>
+              <span class="soma" id="venda-media-rotulo"></span>
+            </div>
+            <p class="card-nota">Média do que você vende de cada sabor quando sai. É o número para decidir o tamanho da próxima fornada.</p>
+            <div id="venda-media-sabores"></div>
+          </section>
+          <section class="card">
+            <div class="card-head">
+              <h2>Vendas avulsas no mês</h2>
+              <span class="soma" id="venda-mes-total"></span>
+            </div>
+            <div class="venda-numeros" id="venda-mes-numeros"></div>
+          </section>
+        </div>
+
+        <section class="card card-wide">
+          <div class="card-head"><h2>Saídas registradas</h2></div>
+          <div id="lista-vendas" class="lista-encomendas"></div>
         </section>
       </div>
 

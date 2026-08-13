@@ -74,6 +74,33 @@ CREATE TABLE IF NOT EXISTS encomendas (
   created_at TIMESTAMPTZ DEFAULT now()
 );
 
+-- Venda avulsa: a fornada que você assa e sai para vender, sem pedido e sem
+-- cliente marcado. É a irmã da encomenda — cookie saindo e dinheiro entrando —
+-- só que sem prazo, sem esteira de produção e com o pagamento na hora.
+--
+-- itens              [{ "receitaId": "uuid", "quantidade": 21 }, ...]
+-- valor              o que você recebeu de verdade, não o preço de tabela
+-- custo              custo dos ingredientes dos cookies vendidos, congelado no
+--                    dia da venda. Guardado e não recalculado de propósito: o
+--                    custo do insumo muda com o tempo, e a margem daquele dia
+--                    tem que continuar sendo a daquele dia.
+-- baixou_freezer     se os cookies saíram do freezer. É o que permite devolvê-los
+--                    ao freezer se a venda for excluída.
+-- financeiro_enviado se o valor já virou lançamento no financeiro, para o
+--                    sistema não oferecer o mesmo dinheiro duas vezes.
+CREATE TABLE IF NOT EXISTS vendas (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  data DATE NOT NULL DEFAULT CURRENT_DATE,
+  lugar TEXT,
+  itens JSONB DEFAULT '[]'::jsonb,
+  valor NUMERIC NOT NULL DEFAULT 0,
+  forma TEXT,
+  custo NUMERIC DEFAULT 0,
+  baixou_freezer BOOLEAN DEFAULT false,
+  financeiro_enviado BOOLEAN DEFAULT false,
+  created_at TIMESTAMPTZ DEFAULT now()
+);
+
 -- Histórico de movimentações. Uma linha por lançamento, com os
 -- dados necessários para desfazê-lo.
 --
@@ -221,6 +248,9 @@ CREATE INDEX IF NOT EXISTS encomendas_cliente_idx ON encomendas (cliente_id);
 -- O financeiro e sempre lido por intervalo de datas.
 CREATE INDEX IF NOT EXISTS financeiro_data_idx ON financeiro (data DESC);
 
+-- A lista de vendas avulsas é sempre lida da mais nova para a mais antiga.
+CREATE INDEX IF NOT EXISTS vendas_data_idx ON vendas (data DESC);
+
 
 -- ------------------------------------------------------------
 -- 4. SEGURANÇA (RLS)
@@ -237,7 +267,7 @@ DO $$
 DECLARE
   tabela text;
 BEGIN
-  FOREACH tabela IN ARRAY ARRAY['itens', 'receitas', 'clientes', 'encomendas', 'historico', 'congelados', 'financeiro', 'recorrentes', 'configuracoes']
+  FOREACH tabela IN ARRAY ARRAY['itens', 'receitas', 'clientes', 'encomendas', 'vendas', 'historico', 'congelados', 'financeiro', 'recorrentes', 'configuracoes']
   LOOP
     EXECUTE format('ALTER TABLE %I ENABLE ROW LEVEL SECURITY', tabela);
 
