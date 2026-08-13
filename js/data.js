@@ -80,7 +80,10 @@ function paraBanco(d) {
   if (obj.itemId !== undefined) { obj.item_id = obj.itemId || null; delete obj.itemId; }
   if (obj.detalhesIngredientes !== undefined) { obj.detalhes_ingredientes = obj.detalhesIngredientes; delete obj.detalhesIngredientes; }
   if (obj.criado_at !== undefined) { obj.created_at = obj.criado_at; delete obj.criado_at; }
-  delete obj.pesoMedia; // campo apenas local
+  // Campo legado: nunca chegou a ser usado no cálculo e não existe no banco.
+  // O sistema não escreve mais nele, mas dados antigos guardados no aparelho
+  // ainda podem trazê-lo — sem esta limpeza, o upsert quebraria.
+  delete obj.pesoMedia;
   return obj;
 }
 

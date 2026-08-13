@@ -134,10 +134,35 @@ async function excluirCliente(id) {
   await excluir("clientes", id, aviso);
 }
 
+// Houve entrada ou saída deste mesmo insumo depois deste lançamento?
+// Importa no estorno de compra: o custo médio guarda só o resultado da última
+// conta, então desfazer uma compra que já teve movimentação depois devolve a
+// quantidade certa, mas deixa o custo impreciso.
+function houveMovimentacaoDepois(h) {
+  const quando = new Date(h.quando).getTime();
+  if (isNaN(quando)) return false;
+  return state.historico.some(x => {
+    if (x.id === h.id) return false;
+    const t = new Date(x.quando).getTime();
+    if (isNaN(t) || t <= quando) return false;
+    if (x.tipo === "compra" || x.tipo === "saida") return x.item_id === h.item_id;
+    if (x.tipo === "producao") {
+      const dets = x.detalhes_ingredientes || x.detalhesIngredientes || [];
+      return dets.some(d => (d.itemId || d.item_id) === h.item_id);
+    }
+    return false;
+  });
+}
+
 async function reverterLancamento(id) {
   const h = state.historico.find(x => x.id === id);
   if (!h) return;
-  const ok = await confirmar(`Desfazer este lançamento?\n\n${h.texto || ""}`, { titulo: "Desfazer", botao: "Desfazer" });
+
+  const aviso = (h.tipo === "compra" && houveMovimentacaoDepois(h))
+    ? "\n\nEste insumo já teve movimentação depois desta compra. A quantidade volta certa, mas o custo médio pode ficar impreciso — confira o valor na aba Cadastros depois de desfazer."
+    : "";
+
+  const ok = await confirmar(`Desfazer este lançamento?\n\n${h.texto || ""}${aviso}`, { titulo: "Desfazer", botao: "Desfazer" });
   if (!ok) return;
 
   try {
@@ -150,7 +175,10 @@ async function reverterLancamento(id) {
         const valorAtualTotal = it.quantidade * it.custoMedio;
         const novaQtd = it.quantidade - qtdReverter;
         if (novaQtd > 0) {
-          it.custoMedio = (valorAtualTotal - valorReverter) / novaQtd;
+          const novoValor = valorAtualTotal - valorReverter;
+          // se a conta ficaria negativa, o dado está inconsistente: preserva o
+          // custo atual em vez de zerar o insumo, que subestimaria o estoque
+          if (novoValor > 0) it.custoMedio = novoValor / novaQtd;
         }
         it.quantidade = Math.max(0, novaQtd);
         await salvar("itens", it);
@@ -220,12 +248,11 @@ function configurarFormularios() {
     if (idEdit) {
       const item = state.itens.find(x => x.id === idEdit);
       if (item) {
-        if (item.custoMedio !== novoCusto) item.pesoMedia = 0;
         Object.assign(item, dados);
         await salvar("itens", item);
       }
     } else {
-      const novo = { ...dados, quantidade: 0, pesoMedia: 0 };
+      const novo = { ...dados, quantidade: 0 };
       state.itens.push(novo);
       await salvar("itens", novo);
     }
@@ -262,9 +289,14 @@ function configurarFormularios() {
       preco = item.custoMedio * qtd; // sem preço informado, assume o custo médio atual
     }
 
-    // média ponderada: (valor em estoque + valor novo) / quantidade total
-    const valorAtual = item.quantidade * item.custoMedio;
-    item.custoMedio = (valorAtual + preco) / (item.quantidade + qtd);
+    // Média ponderada: (valor em estoque + valor novo) / quantidade total.
+    // Saldo negativo (de uma baixa forçada) não entra na média: o que não
+    // existe no estoque não tem custo. Sem esse piso em zero, a compra nova
+    // sairia com o preço distorcido. A quantidade segue somando o saldo real,
+    // negativo inclusive, para não apagar a dívida de estoque.
+    const saldoBase = Math.max(0, item.quantidade);
+    const valorAtual = saldoBase * item.custoMedio;
+    item.custoMedio = (valorAtual + preco) / (saldoBase + qtd);
     item.quantidade += qtd;
 
     const h = {
@@ -594,7 +626,6 @@ function configurarDelegacao() {
       const item = state.itens.find(i => i.id === id);
       if (item) {
         item.custoMedio = Number(alvo.value) || 0;
-        item.pesoMedia = 0;
         await salvar("itens", item);
         renderizar();
         toast("Custo atualizado!");
