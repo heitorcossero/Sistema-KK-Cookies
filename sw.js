@@ -1,4 +1,4 @@
-const CACHE_NAME = 'kk-cookies-v6';
+const CACHE_NAME = 'kk-cookies-v7';
 const ASSETS = [
   './',
   './index.html',
@@ -34,10 +34,19 @@ self.addEventListener('activate', (e) => {
   );
 });
 
-// Rede primeiro; se estiver offline, usa o cache
+// Rede primeiro (sempre revalida, ignorando cache HTTP); offline usa o cache
 self.addEventListener('fetch', (e) => {
   if (e.request.method !== 'GET') return;
   e.respondWith(
-    fetch(e.request).catch(() => caches.match(e.request))
+    fetch(e.request, { cache: 'no-cache' })
+      .then((resp) => {
+        // guarda uma cópia fresca para uso offline
+        if (resp.ok && e.request.url.startsWith(self.location.origin)) {
+          const copia = resp.clone();
+          caches.open(CACHE_NAME).then((cache) => cache.put(e.request, copia));
+        }
+        return resp;
+      })
+      .catch(() => caches.match(e.request))
   );
 });
