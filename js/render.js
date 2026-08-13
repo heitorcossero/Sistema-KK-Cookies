@@ -1,7 +1,12 @@
 // Renderização de todas as telas
 import { state, initSupabase, calcularCustoReceita, conexao } from "./data.js";
-import { MARKUP } from "./config.js";
-import { desenharGraficoFaturamento } from "./chart.js";
+import { MARKUP, CATEGORIAS, nomeCategoria, nomeForma, naturezaCategoria } from "./config.js";
+import { desenharGraficoFaturamento, desenharFluxoCaixa } from "./chart.js";
+import {
+  PERIODOS, intervaloDoPeriodo, nomeDoPeriodo, resumoFinanceiro, saldoEmCaixa,
+  porCategoria, fluxoDiario, saldoAntesDe, aReceber, recorrentesPendentes,
+  vencimentoNesteMes, hojeChave
+} from "./finance.js";
 import {
   escapeHtml, formatarMoeda, formatarMoedaLonga, formatarMoedaExata, formatarQtd,
   formatarData, formatarDataCurta, isMesAtual, getNomeMesAtual
@@ -25,9 +30,14 @@ const ICONE_WHATSAPP = '<svg viewBox="0 0 24 24" fill="currentColor" aria-hidden
 const vazio = (titulo, texto) =>
   `<div class="vazio"><span class="vazio-titulo">${titulo}</span><span class="vazio-texto">${texto}</span></div>`;
 
+// Período escolhido na aba Financeiro. Vive fora do state porque é
+// preferência de tela, não dado do negócio.
+export const filtroFinanceiro = { periodo: "mes-atual", inicio: "", fim: "" };
+
 export function renderizar() {
   try {
     renderSyncStatus();
+    renderFinanceiro();
     renderAlertas();
     renderEstoque();
     renderCongelados();
@@ -66,6 +76,196 @@ function renderSyncStatus() {
   status.title = dica;
   status.classList.toggle("ok", temBiblioteca && conexao.ok);
   status.classList.toggle("erro", temBiblioteca && !conexao.ok);
+}
+
+// ============================================================
+// FINANCEIRO
+// ============================================================
+
+const SETA_ENTRADA = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 19V5M5 12l7-7 7 7"/></svg>';
+const SETA_SAIDA = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 5v14M19 12l-7 7-7-7"/></svg>';
+
+function renderFinanceiro() {
+  const painel = el("panel-financeiro");
+  if (!painel) return;
+
+  const { periodo, inicio: manualI, fim: manualF } = filtroFinanceiro;
+  const { inicio, fim } = intervaloDoPeriodo(periodo, manualI, manualF);
+  const r = resumoFinanceiro(inicio, fim);
+  const caixa = saldoEmCaixa();
+
+  // --- cartões do topo ---
+  const setTexto = (id, txt) => { const e = el(id); if (e) e.textContent = txt; };
+
+  setTexto("fin-caixa", formatarMoeda(caixa.saldo));
+  const dicaCaixa = el("fin-caixa-hint");
+  if (dicaCaixa) {
+    dicaCaixa.textContent = caixa.desde
+      ? `Desde ${formatarDataCurta(caixa.desde)}, partindo de ${formatarMoeda(caixa.base)}`
+      : "Informe o saldo inicial para o caixa bater com a realidade";
+  }
+
+  setTexto("fin-entradas", formatarMoeda(r.entradas));
+  setTexto("fin-entradas-hint", `${r.qtdEntradas} lançamento${r.qtdEntradas === 1 ? "" : "s"}`);
+  setTexto("fin-saidas", formatarMoeda(r.saidas));
+  setTexto("fin-saidas-hint", `${r.qtdSaidas} lançamento${r.qtdSaidas === 1 ? "" : "s"}`);
+
+  setTexto("fin-lucro", formatarMoeda(r.lucro));
+  const elLucro = el("fin-lucro");
+  if (elLucro) {
+    elLucro.classList.toggle("verde", r.lucro > 0);
+    elLucro.classList.toggle("vermelho", r.lucro < 0);
+  }
+  setTexto("fin-lucro-hint", r.faturamento > 0
+    ? `Margem de ${(r.margem * 100).toFixed(0)}% sobre ${formatarMoeda(r.faturamento)}`
+    : "Sem faturamento no período");
+
+  // --- linha de detalhe: o que não entra na margem ---
+  const detalhe = el("fin-detalhe");
+  if (detalhe) {
+    const partes = [];
+    if (r.faturamento) partes.push(`<span><em>Faturamento</em> ${formatarMoeda(r.faturamento)}</span>`);
+    if (r.despesas) partes.push(`<span><em>Despesas</em> ${formatarMoeda(r.despesas)}</span>`);
+    if (r.investimentos) partes.push(`<span><em>Investimentos</em> ${formatarMoeda(r.investimentos)}</span>`);
+    if (r.retiradas) partes.push(`<span><em>Retiradas de lucro</em> ${formatarMoeda(r.retiradas)}</span>`);
+    if (r.aportes) partes.push(`<span><em>Aportes</em> ${formatarMoeda(r.aportes)}</span>`);
+    detalhe.innerHTML = partes.join("");
+    detalhe.classList.toggle("hidden", !partes.length);
+  }
+
+  // --- gráfico de fluxo ---
+  desenharFluxoCaixa(el("fin-grafico"), fluxoDiario(inicio, fim, saldoAntesDe(inicio)));
+  setTexto("fin-periodo-rotulo", `${formatarDataCurta(inicio)} a ${formatarDataCurta(fim)}`);
+
+  renderCategoriasFinanceiro(r);
+  renderRecorrentes();
+  renderAReceber();
+  renderExtratoFinanceiro(r.lista);
+}
+
+function renderCategoriasFinanceiro(r) {
+  const box = el("fin-categorias");
+  if (!box) return;
+
+  const saidas = porCategoria(r.lista, "saida");
+  if (!saidas.length) {
+    box.innerHTML = vazio("Nenhuma saída no período", "Quando registrar gastos, eles aparecem aqui separados por categoria.");
+    return;
+  }
+  const maior = saidas[0][1];
+  box.innerHTML = saidas.map(([cat, valor]) => {
+    const nat = naturezaCategoria(cat);
+    const etiqueta = nat === "investimento" ? '<span class="tag-nat">investimento</span>'
+      : nat === "retirada" ? '<span class="tag-nat">retirada</span>' : "";
+    return `<div class="sabor-row">
+      <div class="sabor-topo">
+        <span class="sabor-nome">${escapeHtml(nomeCategoria(cat))} ${etiqueta}</span>
+        <span class="sabor-qtd">${formatarMoeda(valor)}</span>
+      </div>
+      <div class="sabor-trilha"><div class="sabor-barra" style="width:${Math.max(4, (valor / maior) * 100)}%"></div></div>
+    </div>`;
+  }).join("");
+}
+
+function renderRecorrentes() {
+  const aviso = el("fin-recorrentes-pendentes");
+  const lista = el("fin-recorrentes-lista");
+  const pendentes = recorrentesPendentes();
+
+  if (aviso) {
+    aviso.classList.toggle("hidden", !pendentes.length);
+    aviso.innerHTML = pendentes.length
+      ? `<span class="alerta-icone" aria-hidden="true">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></svg>
+        </span>
+        <div>
+          <h3>${pendentes.length === 1 ? "1 conta venceu" : `${pendentes.length} contas venceram`}</h3>
+          <div class="recorrente-fila">${pendentes.map(rec => `
+            <div class="recorrente-item">
+              <span>${escapeHtml(rec.descricao)} · <strong>${formatarMoeda(rec.valor)}</strong> · dia ${rec.dia}</span>
+              <div class="btn-row">
+                <button type="button" class="btn-mini" data-action="lancar-recorrente" data-id="${rec.id}">Lançar</button>
+                <button type="button" class="btn-mini" data-action="adiar-recorrente" data-id="${rec.id}">Este mês não</button>
+              </div>
+            </div>`).join("")}</div>
+        </div>`
+      : "";
+  }
+
+  if (lista) {
+    lista.innerHTML = (state.recorrentes || []).map(rec => `
+      <div class="item-estoque">
+        <div>
+          <strong class="nome">${escapeHtml(rec.descricao)}</strong>
+          <small class="item-preco-linha">${escapeHtml(nomeCategoria(rec.categoria))} · todo dia ${rec.dia}</small>
+        </div>
+        <div class="flex-row" style="align-items:center; gap:var(--s3)">
+          <span class="saldo">${formatarMoeda(rec.valor)}</span>
+          <button type="button" class="btn-mini perigo" data-action="excluir-recorrente" data-id="${rec.id}">Excluir</button>
+        </div>
+      </div>`).join("")
+      || vazio("Nenhuma conta fixa", "Cadastre gás, internet ou salário e o sistema lembra você todo mês, sem lançar nada sozinho.");
+  }
+}
+
+function renderAReceber() {
+  const box = el("fin-a-receber");
+  const total = el("fin-a-receber-total");
+  if (!box) return;
+
+  const { pedidos, total: soma } = aReceber();
+  if (total) total.textContent = formatarMoeda(soma);
+
+  box.innerHTML = pedidos.length
+    ? pedidos.slice(0, 8).map(e => {
+        const c = state.clientes.find(x => x.id === e.clienteId);
+        return `<div class="lista-compras-item">
+          <span>
+            <strong>${escapeHtml(e.titulo || "Pedido")}</strong>
+            <span class="precisa">${escapeHtml(c?.nome || "Cliente")} · entrega ${formatarDataCurta(e.dataEntrega)}</span>
+          </span>
+          <span class="enc-total">${formatarMoeda(e.valorTotal)}</span>
+        </div>`;
+      }).join("")
+    : vazio("Nada a receber", "Todos os pedidos já foram pagos ou lançados no financeiro.");
+}
+
+function renderExtratoFinanceiro(lista) {
+  const box = el("fin-extrato");
+  if (!box) return;
+
+  const filtro = el("fin-filtro-tipo")?.value || "";
+  const visiveis = filtro ? lista.filter(l => l.tipo === filtro) : lista;
+
+  box.innerHTML = visiveis.length
+    ? visiveis.map(l => {
+        const entrada = l.tipo === "entrada";
+        const origem = l.origem && l.origem !== "manual"
+          ? `<span class="tag-origem">${l.origem === "estoque" ? "do estoque" : "do pedido"}</span>` : "";
+        return `<li>
+          <span class="mov-icone ${entrada ? "producao" : "compra"}" aria-hidden="true">${entrada ? SETA_ENTRADA : SETA_SAIDA}</span>
+          <span class="mov-corpo">
+            <span class="mov-texto">${escapeHtml(l.descricao || nomeCategoria(l.categoria))} ${origem}</span>
+            <span class="mov-quando">${formatarDataCurta(l.data)} · ${escapeHtml(nomeCategoria(l.categoria))}${l.forma ? ` · ${escapeHtml(nomeForma(l.forma))}` : ""}</span>
+          </span>
+          <span class="mov-valor ${entrada ? "pos" : "neg"}">${entrada ? "+" : "−"}${formatarMoeda(l.valor)}</span>
+          <div class="btn-row">
+            <button type="button" class="btn-mini" data-action="editar-lancamento" data-id="${l.id}">Editar</button>
+            <button type="button" class="btn-mini perigo" data-action="excluir-lancamento" data-id="${l.id}">Excluir</button>
+          </div>
+        </li>`;
+      }).join("")
+    : vazio("Nenhum lançamento no período", "Use os botões acima para registrar uma entrada ou uma saída.");
+}
+
+// Preenche os seletores de categoria conforme o tipo escolhido
+export function atualizarCategorias(idSelect, tipo, valorAtual = "") {
+  const sel = el(idSelect);
+  if (!sel) return;
+  const lista = CATEGORIAS[tipo] || [];
+  sel.innerHTML = '<option value="">Selecione…</option>' +
+    lista.map(c => `<option value="${c.id}">${escapeHtml(c.nome)}</option>`).join("");
+  if (valorAtual) sel.value = valorAtual;
 }
 
 function renderAlertas() {
@@ -439,16 +639,22 @@ function renderResumo() {
   // estimativa por markup. O cookie pronto vale o preço de venda do sabor.
   const potencialVenda = vInsumos * MARKUP + vFreezerVenda;
 
-  // 3. Faturamento realizado (produções registradas no histórico)
-  const faturamentoRealizado = (state.historico || []).reduce((acc, h) => {
-    if (h.tipo === "producao") return acc + (Number(h.faturamento) || Number(h.lucro) || 0);
-    return acc;
-  }, 0);
+  // 3. Faturamento do mês — vem do financeiro, que é onde o dinheiro é
+  // registrado de verdade. Produção não é venda: cookie feito só vira
+  // faturamento quando alguém paga.
+  const mes = intervaloDoPeriodo("mes-atual");
+  const fin = resumoFinanceiro(mes.inicio, mes.fim);
 
   const elV = el("valor-total");
   if (elV) elV.textContent = formatarMoeda(vEstoque);
   const elF = el("lucro-producoes");
-  if (elF) elF.textContent = formatarMoeda(faturamentoRealizado);
+  if (elF) elF.textContent = formatarMoeda(fin.faturamento);
+  const elFHint = el("hint-faturamento");
+  if (elFHint) {
+    elFHint.textContent = fin.faturamento > 0
+      ? `Lucro de ${formatarMoeda(fin.lucro)} · margem ${(fin.margem * 100).toFixed(0)}%`
+      : "Registre as vendas na aba Financeiro";
+  }
   const elP = el("lucro-markup-estoque");
   if (elP) elP.textContent = formatarMoeda(potencialVenda);
   const elHintMarkup = el("hint-markup");

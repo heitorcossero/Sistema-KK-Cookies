@@ -1,4 +1,4 @@
-const CACHE_NAME = 'kk-cookies-v9';
+const CACHE_NAME = 'kk-cookies-v10';
 const ASSETS = [
   './',
   './index.html',
@@ -11,6 +11,7 @@ const ASSETS = [
   './js/render.js',
   './js/actions.js',
   './js/chart.js',
+  './js/finance.js',
   './js/main.js',
   './manifest.json',
   './assets/logo-creme.png',

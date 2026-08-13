@@ -170,3 +170,124 @@ export function desenharGraficoFaturamento(container, historico) {
   svg.addEventListener("pointermove", aoMover);
   svg.addEventListener("pointerleave", aoSair);
 }
+
+// ============================================================
+// FLUXO DE CAIXA — barras de entrada e saída por dia, com a
+// linha do saldo acumulado por cima.
+// ============================================================
+
+export function desenharFluxoCaixa(container, dias) {
+  if (!container) return;
+  container.innerHTML = "";
+
+  if (!dias || !dias.length) return;
+
+  const houveMovimento = dias.some(d => d.entrada > 0 || d.saida > 0);
+  if (!houveMovimento) {
+    container.innerHTML = '<div class="vazio"><span class="vazio-titulo">Nenhum lançamento neste período</span>' +
+      '<span class="vazio-texto">Registre uma entrada ou uma saída para o fluxo aparecer.</span></div>';
+    return;
+  }
+
+  const W = 640, H = 220;
+  const M = { esq: 46, dir: 12, topo: 14, base: 26 };
+  const gw = W - M.esq - M.dir;
+  const gh = H - M.topo - M.base;
+
+  const maxBarra = Math.max(...dias.map(d => Math.max(d.entrada, d.saida)), 1);
+  const passo = Math.pow(10, Math.floor(Math.log10(maxBarra)));
+  const maxY = Math.ceil(maxBarra / passo) * passo || 1;
+
+  // agrupa quando o período é longo demais para uma barra por dia
+  const agrupar = Math.ceil(dias.length / 62);
+  const blocos = [];
+  for (let i = 0; i < dias.length; i += agrupar) {
+    const fatia = dias.slice(i, i + agrupar);
+    blocos.push({
+      data: fatia[0].data,
+      entrada: fatia.reduce((a, d) => a + d.entrada, 0),
+      saida: fatia.reduce((a, d) => a + d.saida, 0),
+      saldo: fatia[fatia.length - 1].saldo
+    });
+  }
+
+  const larguraBloco = gw / blocos.length;
+  const larguraBarra = Math.max(1.5, Math.min(9, larguraBloco / 2.6));
+  const px = (i) => M.esq + (i + 0.5) * larguraBloco;
+  const py = (v) => M.topo + gh - (v / maxY) * gh;
+
+  const svg = svgEl("svg", { viewBox: `0 0 ${W} ${H}`, role: "img", "aria-label": "Fluxo de caixa do período" });
+
+  // grade e eixo de valores
+  for (let i = 0; i <= 2; i++) {
+    const v = (maxY / 2) * i;
+    const y = py(v);
+    svg.appendChild(svgEl("line", { x1: M.esq, y1: y, x2: W - M.dir, y2: y, stroke: "rgba(239,234,227,0.07)", "stroke-width": "1" }));
+    const rot = svgEl("text", { x: M.esq - 10, y: y + 3.5, "text-anchor": "end", "font-size": "10", "font-weight": "600", fill: "#9A887A", "font-family": "inherit" });
+    rot.textContent = v >= 1000 ? `${(v / 1000).toLocaleString("pt-BR")}k` : v.toLocaleString("pt-BR");
+    svg.appendChild(rot);
+  }
+
+  // barras: entrada em creme à esquerda, saída em marrom à direita
+  blocos.forEach((b, i) => {
+    const centro = px(i);
+    if (b.entrada > 0) {
+      const alt = Math.max(1.5, (b.entrada / maxY) * gh);
+      svg.appendChild(svgEl("rect", {
+        x: centro - larguraBarra - 1, y: M.topo + gh - alt,
+        width: larguraBarra, height: alt, rx: Math.min(2, larguraBarra / 2), fill: "#EFEAE3"
+      }));
+    }
+    if (b.saida > 0) {
+      const alt = Math.max(1.5, (b.saida / maxY) * gh);
+      svg.appendChild(svgEl("rect", {
+        x: centro + 1, y: M.topo + gh - alt,
+        width: larguraBarra, height: alt, rx: Math.min(2, larguraBarra / 2), fill: "#8A4A34"
+      }));
+    }
+  });
+
+  // linha do saldo acumulado, em escala própria
+  const saldos = blocos.map(b => b.saldo);
+  const sMin = Math.min(...saldos, 0);
+  const sMax = Math.max(...saldos, 1);
+  const pySaldo = (v) => M.topo + gh - ((v - sMin) / (sMax - sMin || 1)) * gh;
+  const pontos = blocos.map((b, i) => [Number(px(i).toFixed(1)), Number(pySaldo(b.saldo).toFixed(1))]);
+  if (pontos.length > 1) {
+    svg.appendChild(svgEl("path", {
+      d: caminhoSuave(pontos), fill: "none", stroke: "#D2A273",
+      "stroke-width": "2", "stroke-linecap": "round", "stroke-linejoin": "round"
+    }));
+  }
+
+  // rótulos de data, espaçados para não colidirem
+  const salto = Math.max(1, Math.ceil(blocos.length / 6));
+  blocos.forEach((b, i) => {
+    if (i % salto !== 0) return;
+    const rot = svgEl("text", { x: px(i), y: H - 8, "text-anchor": "middle", "font-size": "10", "font-weight": "600", fill: "#9A887A", "font-family": "inherit" });
+    rot.textContent = b.data.toLocaleDateString("pt-BR", { day: "2-digit", month: "2-digit" });
+    svg.appendChild(rot);
+  });
+
+  const tooltip = document.createElement("div");
+  tooltip.className = "grafico-tooltip";
+  container.appendChild(tooltip);
+  container.appendChild(svg);
+
+  svg.addEventListener("pointermove", (ev) => {
+    const rect = svg.getBoundingClientRect();
+    const relX = ((ev.clientX - rect.left) / rect.width) * W;
+    const i = Math.floor((relX - M.esq) / larguraBloco);
+    if (i < 0 || i >= blocos.length) { tooltip.style.opacity = "0"; return; }
+    const b = blocos[i];
+    tooltip.innerHTML =
+      `<span class="data">${b.data.toLocaleDateString("pt-BR", { day: "2-digit", month: "short" })}</span>` +
+      `<strong>+ ${formatarMoeda(b.entrada)}</strong>` +
+      `<strong>− ${formatarMoeda(b.saida)}</strong>` +
+      `<span class="data">saldo ${formatarMoeda(b.saldo)}</span>`;
+    tooltip.style.left = `${(px(i) / W) * 100}%`;
+    tooltip.style.top = `${(M.topo / H) * 100}%`;
+    tooltip.style.opacity = "1";
+  });
+  svg.addEventListener("pointerleave", () => { tooltip.style.opacity = "0"; });
+}

@@ -52,6 +52,10 @@
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 7h11v9H3zM14 10h4l3 3v3h-7M6.5 19a1.7 1.7 0 100-3.4 1.7 1.7 0 000 3.4zM17.5 19a1.7 1.7 0 100-3.4 1.7 1.7 0 000 3.4z"/></svg>
         <span class="rotulo">Encomendas</span>
       </button>
+      <button type="button" class="tab" role="tab" aria-selected="false" aria-controls="panel-financeiro" id="tab-financeiro" data-tab="financeiro" data-titulo="Financeiro">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 8.5h18v10a1.5 1.5 0 01-1.5 1.5h-15A1.5 1.5 0 013 18.5v-10zM3 8.5l2.6-4.2a1.5 1.5 0 011.3-.8h10.2a1.5 1.5 0 011.3.8L21 8.5M16 14h2"/></svg>
+        <span class="rotulo">Financeiro</span>
+      </button>
       <button type="button" class="tab" role="tab" aria-selected="false" aria-controls="panel-clientes" id="tab-clientes" data-tab="clientes" data-titulo="Clientes">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" aria-hidden="true"><circle cx="9" cy="8" r="3.2"/><path d="M3.5 19c.6-3 2.8-4.5 5.5-4.5s4.9 1.5 5.5 4.5M15.5 5.6a3.2 3.2 0 010 4.9M17.8 14.9c1.5.7 2.4 2 2.7 4.1"/></svg>
         <span class="rotulo">Clientes</span>
@@ -109,9 +113,9 @@
               <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 17l6-6 4 4 8-8M15 7h6v6"/></svg>
             </span>
             <div class="stat-corpo">
-              <span class="stat-label">Faturamento realizado</span>
+              <span class="stat-label">Faturamento do mês</span>
               <p id="lucro-producoes" class="stat-valor verde">R$ 0,00</p>
-              <span class="stat-hint">Soma de todas as produções registradas</span>
+              <span class="stat-hint" id="hint-faturamento">Registre as vendas na aba Financeiro</span>
             </div>
           </div>
           <div class="stat-card">
@@ -163,6 +167,10 @@
                 <label><span>Quantidade</span><input type="number" id="entrada-qtd" step="any" min="0" required /></label>
                 <label><span id="label-entrada-preco">Preço pago</span><input type="number" id="entrada-preco" step="any" min="0" /></label>
               </div>
+              <label class="opcao">
+                <input type="checkbox" id="entrada-lancar-financeiro" />
+                <span>Lançar esta compra no financeiro</span>
+              </label>
               <button type="submit" class="btn btn-primary">Registrar compra</button>
             </form>
           </section>
@@ -272,6 +280,129 @@
         </section>
       </div>
 
+      <!-- ===================== ABA FINANCEIRO ===================== -->
+      <div id="panel-financeiro" class="tab-panel" role="tabpanel" aria-labelledby="tab-financeiro">
+        <div id="fin-recorrentes-pendentes" class="alertas-box hidden"></div>
+
+        <div class="fin-barra">
+          <label class="fin-periodo">
+            <span>Período</span>
+            <select id="fin-periodo"></select>
+          </label>
+          <label class="fin-periodo hidden" id="fin-datas-inicio">
+            <span>De</span><input type="date" id="fin-inicio" />
+          </label>
+          <label class="fin-periodo hidden" id="fin-datas-fim">
+            <span>Até</span><input type="date" id="fin-fim" />
+          </label>
+          <span class="fin-espaco"></span>
+          <button type="button" class="btn btn-success" id="btn-nova-entrada">Registrar entrada</button>
+          <button type="button" class="btn btn-danger" id="btn-nova-saida">Registrar saída</button>
+        </div>
+
+        <div class="grid-4">
+          <div class="stat-card">
+            <div class="stat-corpo">
+              <span class="stat-label">Em caixa</span>
+              <p id="fin-caixa" class="stat-valor">R$ 0,00</p>
+              <span class="stat-hint" id="fin-caixa-hint"></span>
+            </div>
+          </div>
+          <div class="stat-card">
+            <div class="stat-corpo">
+              <span class="stat-label">Entradas</span>
+              <p id="fin-entradas" class="stat-valor verde">R$ 0,00</p>
+              <span class="stat-hint" id="fin-entradas-hint"></span>
+            </div>
+          </div>
+          <div class="stat-card">
+            <div class="stat-corpo">
+              <span class="stat-label">Saídas</span>
+              <p id="fin-saidas" class="stat-valor vermelho">R$ 0,00</p>
+              <span class="stat-hint" id="fin-saidas-hint"></span>
+            </div>
+          </div>
+          <div class="stat-card">
+            <div class="stat-corpo">
+              <span class="stat-label">Lucro</span>
+              <p id="fin-lucro" class="stat-valor">R$ 0,00</p>
+              <span class="stat-hint" id="fin-lucro-hint"></span>
+            </div>
+          </div>
+        </div>
+
+        <div id="fin-detalhe" class="fin-detalhe hidden"></div>
+
+        <section class="card card-wide">
+          <div class="card-head">
+            <h2>Fluxo de caixa</h2>
+            <span class="soma" id="fin-periodo-rotulo"></span>
+          </div>
+          <p class="card-nota">Barras claras são entradas, escuras são saídas. A linha acompanha o saldo acumulado.</p>
+          <div id="fin-grafico" class="grafico-area"></div>
+        </section>
+
+        <div class="grid-2">
+          <section class="card">
+            <div class="card-head"><h2>Para onde foi o dinheiro</h2></div>
+            <div id="fin-categorias"></div>
+          </section>
+          <section class="card">
+            <div class="card-head">
+              <h2>A receber</h2>
+              <span class="soma" id="fin-a-receber-total"></span>
+            </div>
+            <p class="card-nota">Pedidos ainda não pagos. É só lembrete — não entra no caixa nem no faturamento.</p>
+            <div id="fin-a-receber"></div>
+          </section>
+        </div>
+
+        <section class="card card-wide">
+          <div class="card-head">
+            <h2>Extrato</h2>
+            <label class="fin-periodo">
+              <select id="fin-filtro-tipo">
+                <option value="">Tudo</option>
+                <option value="entrada">Só entradas</option>
+                <option value="saida">Só saídas</option>
+              </select>
+            </label>
+          </div>
+          <ul id="fin-extrato" class="lista-historico"></ul>
+        </section>
+
+        <div class="grid-2">
+          <section class="card">
+            <div class="card-head"><h2>Contas fixas</h2></div>
+            <p class="card-nota">O sistema avisa quando vencem, mas nunca lança sozinho — o valor da conta muda todo mês.</p>
+            <form id="form-recorrente" class="form">
+              <div class="grid-2">
+                <label><span>Descrição</span><input type="text" id="rec-descricao" placeholder="Ex.: Botijão de gás" required /></label>
+                <label><span>Categoria</span><select id="rec-categoria" required></select></label>
+              </div>
+              <div class="grid-2">
+                <label><span>Valor aproximado</span><input type="number" id="rec-valor" step="any" min="0" placeholder="R$ 0,00" required /></label>
+                <label><span>Dia do mês</span><input type="number" id="rec-dia" min="1" max="31" placeholder="1 a 31" required /></label>
+              </div>
+              <button type="submit" class="btn btn-primary">Adicionar conta fixa</button>
+            </form>
+            <div id="fin-recorrentes-lista" class="lista-estoque" style="margin-top:var(--s5)"></div>
+          </section>
+
+          <section class="card">
+            <div class="card-head"><h2>Saldo inicial</h2></div>
+            <p class="card-nota">Quanto você tinha em caixa quando começou a usar o sistema. Sem isso o saldo não bate com o dinheiro real.</p>
+            <form id="form-saldo-inicial" class="form">
+              <div class="grid-2">
+                <label><span>Na data de</span><input type="date" id="saldo-data" required /></label>
+                <label><span>Tinha em caixa</span><input type="number" id="saldo-valor" step="any" placeholder="R$ 0,00" required /></label>
+              </div>
+              <button type="submit" class="btn btn-secondary">Salvar saldo inicial</button>
+            </form>
+          </section>
+        </div>
+      </div>
+
       <!-- ===================== ABA CLIENTES ===================== -->
       <div id="panel-clientes" class="tab-panel" role="tabpanel" aria-labelledby="tab-clientes">
         <section class="card card-wide">
@@ -360,6 +491,50 @@
         <button type="button" class="btn btn-ghost" id="modal-cancelar">Cancelar</button>
         <button type="button" class="btn btn-primary" id="modal-confirmar">Confirmar</button>
       </div>
+    </div>
+  </div>
+
+  <!-- ===================== LANÇAMENTO FINANCEIRO ===================== -->
+  <div id="modal-lancamento" class="modal-overlay hidden" role="dialog" aria-modal="true" aria-labelledby="lanc-titulo">
+    <div class="modal-card modal-largo">
+      <h3 id="lanc-titulo">Nova entrada</h3>
+      <form id="form-lancamento" class="form">
+        <input type="hidden" id="lanc-id" />
+        <input type="hidden" id="lanc-tipo" />
+        <div class="grid-2">
+          <label><span>Valor</span><input type="number" id="lanc-valor" step="any" min="0" placeholder="R$ 0,00" required /></label>
+          <label><span>Data</span><input type="date" id="lanc-data" required /></label>
+        </div>
+        <label><span>Categoria</span><select id="lanc-categoria" required></select></label>
+        <label><span>Descrição</span><input type="text" id="lanc-descricao" placeholder="Ex.: compra no atacado" /></label>
+        <label><span>Forma de pagamento</span><select id="lanc-forma"></select></label>
+        <p class="lanc-aviso" id="lanc-aviso"></p>
+        <div class="modal-acoes">
+          <button type="button" class="btn btn-ghost" id="lanc-cancelar">Cancelar</button>
+          <button type="submit" class="btn btn-primary" id="lanc-salvar">Salvar lançamento</button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <!-- ===================== RECEBIMENTO DE PEDIDO ===================== -->
+  <div id="modal-receber" class="modal-overlay hidden" role="dialog" aria-modal="true" aria-labelledby="receber-titulo">
+    <div class="modal-card">
+      <h3 id="receber-titulo">Registrar recebimento</h3>
+      <p id="receber-texto"></p>
+      <form id="form-receber" class="form">
+        <input type="hidden" id="receber-pedido-id" />
+        <div class="grid-2">
+          <label><span>Valor recebido</span><input type="number" id="receber-valor" step="any" min="0" required /></label>
+          <label><span>Data</span><input type="date" id="receber-data" required /></label>
+        </div>
+        <label><span>Forma de pagamento</span><select id="receber-forma"></select></label>
+        <p class="lanc-aviso" id="receber-aviso"></p>
+        <div class="modal-acoes">
+          <button type="button" class="btn btn-ghost" id="receber-pular">Agora não</button>
+          <button type="submit" class="btn btn-primary">Lançar no financeiro</button>
+        </div>
+      </form>
     </div>
   </div>
 

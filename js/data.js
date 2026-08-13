@@ -8,7 +8,12 @@ export const state = {
   clientes: [],
   encomendas: [],
   historico: [],
-  congelados: {}
+  congelados: {},
+  // Financeiro: a fonte da verdade do dinheiro. Estoque e encomendas não
+  // alimentam estes números sozinhos — só o que for enviado de propósito.
+  financeiro: [],
+  recorrentes: [],
+  config: {}
 };
 
 // Situação real da sincronia, não apenas "a biblioteca carregou".
@@ -44,7 +49,7 @@ export async function carregar() {
   const s = initSupabase();
   if (!s) return;
   try {
-    const [it, cl, rec, enc, hist, cong] = await Promise.all([
+    const [it, cl, rec, enc, hist, cong, fin, recor, conf] = await Promise.all([
       s.from("itens").select("*"),
       s.from("clientes").select("*"),
       s.from("receitas").select("*"),
@@ -53,7 +58,10 @@ export async function carregar() {
       // Com um teto baixo, lançamentos antigos sumiam da soma e o faturamento
       // encolhia sozinho com o tempo.
       s.from("historico").select("*").order("quando", { ascending: false }).limit(2000),
-      s.from("congelados").select("*")
+      s.from("congelados").select("*"),
+      s.from("financeiro").select("*").order("data", { ascending: false }).limit(5000),
+      s.from("recorrentes").select("*"),
+      s.from("configuracoes").select("*")
     ]);
 
     if (it.data) {
@@ -66,6 +74,12 @@ export async function carregar() {
     if (cong.data) {
       state.congelados = {};
       cong.data.forEach(c => { state.congelados[c.receita_id] = Number(c.quantidade); });
+    }
+    if (fin.data) state.financeiro = fin.data.map(l => ({ ...l, valor: Number(l.valor) }));
+    if (recor.data) state.recorrentes = recor.data.map(r => ({ ...r, valor: Number(r.valor), dia: Number(r.dia) }));
+    if (conf.data) {
+      state.config = {};
+      conf.data.forEach(c => { state.config[c.chave] = c.valor; });
     }
     conexao.ok = true;
     localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
@@ -151,6 +165,10 @@ export async function migrarParaNuvem() {
     if (state.historico.length) await salvar("historico", state.historico);
     const cong = Object.entries(state.congelados).map(([receita_id, quantidade]) => ({ receita_id, quantidade }));
     if (cong.length) await salvar("congelados", cong);
+    if (state.financeiro.length) await salvar("financeiro", state.financeiro);
+    if (state.recorrentes.length) await salvar("recorrentes", state.recorrentes);
+    const conf = Object.entries(state.config || {}).map(([chave, valor]) => ({ chave, valor }));
+    if (conf.length) await salvar("configuracoes", conf);
     return true;
   } catch (err) {
     console.error("Erro na migração:", err);

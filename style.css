@@ -279,7 +279,20 @@ h1, h2, h3, h4 {
   transition: color 0.18s ease, background 0.18s ease;
 }
 
-.tab svg { width: 21px; height: 21px; }
+.tab svg { width: 21px; height: 21px; flex-shrink: 0; }
+
+/* com seis abas o rótulo fica apertado em telas estreitas */
+.tab .rotulo {
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+@media (max-width: 420px) {
+  .tab { font-size: 0.56rem; padding: var(--s2) 2px; }
+  .tab svg { width: 19px; height: 19px; }
+}
 
 .tab:hover { color: var(--tinta-2); }
 .tab.active { color: var(--creme); background: rgba(239, 234, 227, 0.07); }
@@ -745,6 +758,112 @@ h1, h2, h3, h4 {
 
 .sabor-row:first-child .sabor-barra { background: var(--creme); }
 .sabor-row:first-child .sabor-qtd { color: var(--creme); }
+
+/* =========================================================
+   FINANCEIRO
+   ========================================================= */
+
+.fin-barra {
+  display: flex;
+  align-items: flex-end;
+  gap: var(--s3);
+  flex-wrap: wrap;
+  margin-bottom: var(--s5);
+}
+
+.fin-espaco { flex: 1; }
+
+.fin-periodo { display: flex; flex-direction: column; gap: var(--s2); }
+
+.fin-periodo > span {
+  font-size: 0.7rem;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--tinta-3);
+}
+
+.fin-periodo select, .fin-periodo input { width: auto; min-width: 150px; }
+
+@media (max-width: 620px) {
+  .fin-barra > .btn { flex: 1; }
+  .fin-periodo { flex: 1 1 100%; }
+  .fin-periodo select, .fin-periodo input { width: 100%; }
+}
+
+.grid-4 { display: grid; gap: var(--s4); margin-bottom: var(--s5); grid-template-columns: 1fr 1fr; }
+
+@media (min-width: 900px) { .grid-4 { grid-template-columns: repeat(4, 1fr); } }
+
+.stat-valor.vermelho { color: var(--vermelho); }
+
+/* linha de detalhe: o que sai do caixa mas não entra na margem */
+.fin-detalhe {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--s2) var(--s5);
+  padding: var(--s3) var(--s5);
+  margin-bottom: var(--s5);
+  font-size: 0.8rem;
+  font-variant-numeric: tabular-nums;
+  color: var(--tinta-2);
+  background: var(--cacau-800);
+  border: 1px solid var(--linha);
+  border-radius: var(--r-md);
+}
+
+.fin-detalhe em {
+  font-style: normal;
+  font-size: 0.68rem;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--tinta-3);
+  margin-right: var(--s2);
+}
+
+.tag-nat, .tag-origem {
+  display: inline-block;
+  padding: 1px var(--s2);
+  font-size: 0.62rem;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--tinta-3);
+  background: var(--cacau-600);
+  border-radius: var(--r-pill);
+  vertical-align: middle;
+}
+
+/* fila de contas fixas vencidas, dentro da caixa de alerta */
+.recorrente-fila { display: flex; flex-direction: column; gap: var(--s2); margin-top: var(--s3); }
+
+.recorrente-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--s3);
+  flex-wrap: wrap;
+  font-size: 0.84rem;
+  color: var(--tinta-2);
+}
+
+.recorrente-item strong { color: var(--tinta); font-variant-numeric: tabular-nums; }
+
+/* aviso do efeito da categoria escolhida */
+.lanc-aviso {
+  margin: 0;
+  padding: var(--s3);
+  font-size: 0.78rem;
+  line-height: 1.45;
+  color: var(--biscoito);
+  background: var(--biscoito-fundo);
+  border-radius: var(--r-sm);
+}
+
+.modal-largo { max-width: 460px; }
+
+.modal-card .form { text-align: left; }
 
 /* =========================================================
    EXTRATO DE MOVIMENTAÇÕES

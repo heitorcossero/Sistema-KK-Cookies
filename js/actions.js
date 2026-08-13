@@ -1,7 +1,9 @@
 // Ações do usuário: formulários, botões e eventos delegados
 import { state, salvar, apagarDaNuvem, calcularCustoReceita, migrarParaNuvem } from "./data.js";
-import { renderizar, novaLinhaIngrediente, novaLinhaProduto } from "./render.js";
+import { renderizar, novaLinhaIngrediente, novaLinhaProduto, filtroFinanceiro, atualizarCategorias } from "./render.js";
 import { uid, toast, confirmar, escapeHtml, formatarMoeda, formatarQtd, dataDoDia, isoDeHojeLocal } from "./utils.js";
+import { CATEGORIAS, FORMAS_PAGAMENTO, nomeCategoria } from "./config.js";
+import { PERIODOS, hojeChave, vencimentoNesteMes } from "./finance.js";
 import { logout } from "./auth.js";
 
 const el = (id) => document.getElementById(id);
@@ -138,6 +140,154 @@ function cancelarEncomenda() {
   el("titulo-form-encomenda").textContent = "Novo pedido";
   el("btn-salvar-encomenda").textContent = "Salvar encomenda";
   el("btn-cancelar-encomenda").classList.add("hidden");
+}
+
+// ==========================================
+// FINANCEIRO
+//
+// Regra de ouro desta aba: ela é a única fonte da verdade do dinheiro.
+// Estoque e encomendas nunca alteram estes números por conta própria —
+// só o que for enviado de propósito vira lançamento, e o que chega aqui
+// passa a viver por conta própria, sem vínculo com a origem.
+// ==========================================
+
+// Cria o lançamento a partir de um envio do estoque ou de um pedido.
+// É uma cópia do valor, não um espelho: desfazer a compra lá não mexe aqui.
+async function registrarLancamento({ tipo, valor, categoria, descricao, data, forma = "", origem = "manual" }) {
+  const lanc = {
+    id: uid(),
+    data: data || hojeChave(),
+    tipo,
+    valor: Number(valor) || 0,
+    categoria,
+    descricao: descricao || "",
+    forma: forma || null,
+    origem
+  };
+  state.financeiro.unshift(lanc);
+  await salvar("financeiro", lanc);
+  return lanc;
+}
+
+function abrirLancamento(tipo, lancamento = null) {
+  const editando = !!lancamento;
+  el("lanc-id").value = editando ? lancamento.id : "";
+  el("lanc-tipo").value = tipo;
+  el("lanc-titulo").textContent = editando
+    ? "Editar lançamento"
+    : (tipo === "entrada" ? "Nova entrada" : "Nova saída");
+  el("lanc-salvar").textContent = editando ? "Salvar alterações" : "Salvar lançamento";
+  el("lanc-valor").value = editando ? lancamento.valor : "";
+  el("lanc-data").value = editando ? lancamento.data : hojeChave();
+  el("lanc-descricao").value = editando ? (lancamento.descricao || "") : "";
+  el("lanc-forma").value = editando ? (lancamento.forma || "") : "";
+
+  atualizarCategorias("lanc-categoria", tipo, editando ? lancamento.categoria : "");
+  mostrarAvisoNatureza();
+
+  el("modal-lancamento").classList.remove("hidden");
+  el("lanc-valor").focus();
+}
+
+function fecharLancamento() {
+  el("modal-lancamento").classList.add("hidden");
+  el("form-lancamento").reset();
+  el("lanc-id").value = "";
+  delete el("form-lancamento").dataset.recorrenteId;
+}
+
+// Explica na hora o efeito da categoria escolhida, para não haver surpresa
+// no fim do mês sobre por que o lucro subiu ou não.
+function mostrarAvisoNatureza() {
+  const tipo = el("lanc-tipo").value;
+  const catId = el("lanc-categoria").value;
+  const cat = (CATEGORIAS[tipo] || []).find(c => c.id === catId);
+  const aviso = el("lanc-aviso");
+  if (!aviso) return;
+
+  const textos = {
+    investimento: "Sai do caixa, mas não entra no cálculo do lucro — equipamento é investimento, não gasto do mês.",
+    retirada: "Sai do caixa e não conta como despesa: é o lucro sendo levado, não um custo do negócio.",
+    aporte: "Entra no caixa, mas não conta como faturamento — é dinheiro seu entrando, não venda.",
+    operacional: "Conta como despesa e reduz o lucro do período.",
+    venda: "Conta como faturamento do período."
+  };
+  const texto = cat ? textos[cat.natureza] : "";
+  aviso.textContent = texto || "";
+  aviso.classList.toggle("hidden", !texto);
+}
+
+// Ao marcar um pedido como pago, oferece o envio do valor recebido.
+// Nada vai sozinho: se fechar sem confirmar, o pedido segue como pago e o
+// financeiro fica intacto.
+function abrirRecebimento(enc) {
+  const cliente = state.clientes.find(c => c.id === enc.clienteId);
+  el("receber-pedido-id").value = enc.id;
+  el("receber-texto").textContent =
+    `${enc.titulo || "Pedido"} · ${cliente?.nome || "Cliente"}. Se receber mais que o valor do pedido, a diferença vira um lançamento de extra.`;
+  el("receber-valor").value = Number(enc.valorTotal) || 0;
+  el("receber-data").value = hojeChave();
+  el("receber-forma").value = "";
+  el("receber-aviso").classList.add("hidden");
+  el("modal-receber").classList.remove("hidden");
+  el("receber-valor").focus();
+}
+
+const fecharRecebimento = () => el("modal-receber").classList.add("hidden");
+
+async function excluirLancamento(id) {
+  const l = state.financeiro.find(x => x.id === id);
+  if (!l) return;
+  const ok = await confirmar(
+    `Excluir este lançamento?\n\n${l.descricao || nomeCategoria(l.categoria)} — ${formatarMoeda(l.valor)}`,
+    { titulo: "Excluir", botao: "Excluir" }
+  );
+  if (!ok) return;
+  state.financeiro = state.financeiro.filter(x => x.id !== id);
+  await apagarDaNuvem("financeiro", id);
+  await salvar();
+  renderizar();
+  toast("Lançamento excluído.");
+}
+
+// A conta fixa é só um lembrete: abre o formulário já preenchido para você
+// conferir o valor do mês antes de confirmar.
+function lancarRecorrente(id) {
+  const rec = state.recorrentes.find(x => x.id === id);
+  if (!rec) return;
+  abrirLancamento("saida", {
+    id: "",
+    tipo: "saida",
+    valor: rec.valor,
+    categoria: rec.categoria,
+    descricao: rec.descricao,
+    data: vencimentoNesteMes(rec),
+    forma: null
+  });
+  el("lanc-titulo").textContent = `Conta fixa: ${rec.descricao}`;
+  el("form-lancamento").dataset.recorrenteId = rec.id;
+}
+
+async function adiarRecorrente(id) {
+  const rec = state.recorrentes.find(x => x.id === id);
+  if (!rec) return;
+  rec.ultimo_lancamento = vencimentoNesteMes(rec);
+  await salvar("recorrentes", rec);
+  renderizar();
+  toast("Conta marcada como resolvida neste mês.");
+}
+
+async function excluirRecorrente(id) {
+  const rec = state.recorrentes.find(x => x.id === id);
+  if (!rec) return;
+  const ok = await confirmar(`Excluir a conta fixa "${rec.descricao}"?\n\nOs lançamentos já feitos continuam no extrato.`,
+    { titulo: "Excluir", botao: "Excluir" });
+  if (!ok) return;
+  state.recorrentes = state.recorrentes.filter(x => x.id !== id);
+  await apagarDaNuvem("recorrentes", id);
+  await salvar();
+  renderizar();
+  toast("Conta fixa excluída.");
 }
 
 // ==========================================
@@ -320,6 +470,9 @@ async function alternarStatusPedido(id, campo, valor) {
   // continuava cheio no papel e a lista de compras deixava de pedir o que
   // precisava ser reposto.
   if (campo === "entregue" && valor) await baixarDoFreezer(enc);
+
+  // Pago abre a oferta de lançar no financeiro, uma vez só por pedido.
+  if (campo === "pago" && valor && !enc.financeiroEnviado) abrirRecebimento(enc);
 }
 
 async function baixarDoFreezer(enc) {
@@ -441,10 +594,22 @@ function configurarFormularios() {
     state.historico.unshift(h);
     await salvar("itens", item);
     await salvar("historico", h);
+
+    // Envio explícito para o financeiro. Só acontece se você marcar: o
+    // estoque não dita o caixa, apenas oferece o atalho para não redigitar.
+    const lancar = el("entrada-lancar-financeiro")?.checked;
+    if (lancar && preco > 0) {
+      await registrarLancamento({
+        tipo: "saida", valor: preco, categoria: "insumos",
+        descricao: `${item.nome} — ${formatarQtd(qtd)}${item.unidade}`,
+        origem: "estoque"
+      });
+    }
+
     e.target.reset();
     calcUnit();
     renderizar();
-    toast("Compra registrada!");
+    toast(lancar && preco > 0 ? "Compra registrada e lançada no financeiro!" : "Compra registrada!");
   });
 
   // --- Saída manual ---
@@ -746,6 +911,165 @@ function configurarFormularios() {
     el("ingredientes-container").appendChild(novaLinhaIngrediente());
   };
 
+  // ==========================================
+  // FINANCEIRO
+  // ==========================================
+
+  // seletores estáticos
+  el("fin-periodo").innerHTML = PERIODOS.map(p => `<option value="${p.id}">${p.nome}</option>`).join("");
+  el("fin-periodo").value = filtroFinanceiro.periodo;
+  const optFormas = '<option value="">Não informar</option>' +
+    FORMAS_PAGAMENTO.map(f => `<option value="${f.id}">${f.nome}</option>`).join("");
+  el("lanc-forma").innerHTML = optFormas;
+  el("receber-forma").innerHTML = optFormas;
+  atualizarCategorias("rec-categoria", "saida");
+
+  const aplicarPeriodo = () => {
+    filtroFinanceiro.periodo = el("fin-periodo").value;
+    filtroFinanceiro.inicio = el("fin-inicio").value;
+    filtroFinanceiro.fim = el("fin-fim").value;
+    const personalizado = filtroFinanceiro.periodo === "personalizado";
+    el("fin-datas-inicio").classList.toggle("hidden", !personalizado);
+    el("fin-datas-fim").classList.toggle("hidden", !personalizado);
+    renderizar();
+  };
+  el("fin-periodo").onchange = aplicarPeriodo;
+  el("fin-inicio").onchange = aplicarPeriodo;
+  el("fin-fim").onchange = aplicarPeriodo;
+  el("fin-filtro-tipo").onchange = renderizar;
+
+  el("btn-nova-entrada").onclick = () => abrirLancamento("entrada");
+  el("btn-nova-saida").onclick = () => abrirLancamento("saida");
+  el("lanc-cancelar").onclick = fecharLancamento;
+  el("lanc-categoria").onchange = mostrarAvisoNatureza;
+  el("modal-lancamento").onclick = (e) => { if (e.target.id === "modal-lancamento") fecharLancamento(); };
+
+  aoEnviar("form-lancamento", async () => {
+    const idEdit = el("lanc-id").value;
+    const tipo = el("lanc-tipo").value;
+    const valor = Number(el("lanc-valor").value);
+    const categoria = el("lanc-categoria").value;
+
+    if (!(valor > 0)) { toast("Informe um valor maior que zero.", true); return; }
+    if (!categoria) { toast("Escolha a categoria do lançamento.", true); return; }
+
+    const dados = {
+      data: el("lanc-data").value || hojeChave(),
+      tipo,
+      valor,
+      categoria,
+      descricao: el("lanc-descricao").value.trim(),
+      forma: el("lanc-forma").value || null
+    };
+
+    if (idEdit) {
+      const l = state.financeiro.find(x => x.id === idEdit);
+      if (l) { Object.assign(l, dados); await salvar("financeiro", l); }
+    } else {
+      const novo = { id: uid(), origem: "manual", ...dados };
+      state.financeiro.unshift(novo);
+      await salvar("financeiro", novo);
+
+      // veio de uma conta fixa: marca como resolvida no mês para o aviso sumir
+      const recId = el("form-lancamento").dataset.recorrenteId;
+      if (recId) {
+        const rec = state.recorrentes.find(x => x.id === recId);
+        if (rec) { rec.ultimo_lancamento = dados.data; await salvar("recorrentes", rec); }
+      }
+    }
+    fecharLancamento();
+    renderizar();
+    toast(idEdit ? "Lançamento atualizado!" : "Lançamento registrado!");
+  });
+
+  // --- recebimento de pedido ---
+  el("receber-pular").onclick = fecharRecebimento;
+  el("modal-receber").onclick = (e) => { if (e.target.id === "modal-receber") fecharRecebimento(); };
+
+  el("receber-valor").oninput = () => {
+    const enc = state.encomendas.find(x => x.id === el("receber-pedido-id").value);
+    const recebido = Number(el("receber-valor").value) || 0;
+    const total = Number(enc?.valorTotal) || 0;
+    const aviso = el("receber-aviso");
+    const extra = recebido - total;
+    if (extra > 0.005) {
+      aviso.textContent = `Vai lançar ${formatarMoeda(total)} como venda e ${formatarMoeda(extra)} como extra.`;
+    } else if (extra < -0.005 && recebido > 0) {
+      aviso.textContent = `Recebimento parcial. Faltam ${formatarMoeda(-extra)} para fechar o pedido.`;
+    } else {
+      aviso.textContent = "";
+    }
+    aviso.classList.toggle("hidden", !aviso.textContent);
+  };
+
+  aoEnviar("form-receber", async () => {
+    const enc = state.encomendas.find(x => x.id === el("receber-pedido-id").value);
+    if (!enc) { fecharRecebimento(); return; }
+
+    const recebido = Number(el("receber-valor").value);
+    if (!(recebido > 0)) { toast("Informe o valor recebido.", true); return; }
+
+    const data = el("receber-data").value || hojeChave();
+    const forma = el("receber-forma").value || null;
+    const cliente = state.clientes.find(c => c.id === enc.clienteId);
+    const nome = `${enc.titulo || "Pedido"} · ${cliente?.nome || "Cliente"}`;
+    const total = Number(enc.valorTotal) || 0;
+
+    // o que passar do valor do pedido vira extra, em lançamento separado,
+    // para o faturamento de venda não ficar inflado pela gorjeta
+    const venda = Math.min(recebido, total) || recebido;
+    await registrarLancamento({
+      tipo: "entrada", valor: venda, categoria: "venda-pedido",
+      descricao: nome, data, forma, origem: "pedido"
+    });
+
+    const extra = recebido - total;
+    if (extra > 0.005) {
+      await registrarLancamento({
+        tipo: "entrada", valor: extra, categoria: "extra",
+        descricao: `Extra de ${cliente?.nome || "cliente"}`, data, forma, origem: "pedido"
+      });
+    }
+
+    enc.financeiroEnviado = true;
+    await salvar("encomendas", enc);
+
+    fecharRecebimento();
+    renderizar();
+    toast(extra > 0.005 ? "Recebimento e extra lançados!" : "Recebimento lançado!");
+  });
+
+  // --- contas fixas ---
+  aoEnviar("form-recorrente", async () => {
+    const novo = {
+      id: uid(),
+      descricao: el("rec-descricao").value.trim(),
+      tipo: "saida",
+      valor: Number(el("rec-valor").value) || 0,
+      categoria: el("rec-categoria").value,
+      dia: Math.min(31, Math.max(1, Number(el("rec-dia").value) || 1)),
+      ativo: true,
+      ultimo_lancamento: null
+    };
+    if (!novo.descricao || !novo.categoria) { toast("Preencha descrição e categoria.", true); return; }
+    state.recorrentes.push(novo);
+    await salvar("recorrentes", novo);
+    el("form-recorrente").reset();
+    renderizar();
+    toast("Conta fixa cadastrada!");
+  });
+
+  // --- saldo inicial ---
+  aoEnviar("form-saldo-inicial", async () => {
+    const data = el("saldo-data").value;
+    const valor = Number(el("saldo-valor").value);
+    if (!data || !Number.isFinite(valor)) { toast("Informe a data e o valor.", true); return; }
+    state.config.saldoInicial = { data, valor };
+    await salvar("configuracoes", { chave: "saldoInicial", valor: state.config.saldoInicial });
+    renderizar();
+    toast("Saldo inicial salvo!");
+  });
+
   el("btn-cancelar-insumo").onclick = cancelarInsumo;
   el("btn-cancelar-receita").onclick = cancelarReceita;
   el("btn-cancelar-cliente").onclick = cancelarCliente;
@@ -786,6 +1110,16 @@ function configurarDelegacao() {
       case "excluir-encomenda": excluir("encomendas", id, "Excluir este pedido?"); break;
       case "desfazer": reverterLancamento(id); break;
       case "remover-linha": alvo.closest(".enc-linha-row")?.remove(); break;
+
+      case "editar-lancamento": {
+        const l = state.financeiro.find(x => x.id === id);
+        if (l) abrirLancamento(l.tipo, l);
+        break;
+      }
+      case "excluir-lancamento": excluirLancamento(id); break;
+      case "lancar-recorrente": lancarRecorrente(id); break;
+      case "adiar-recorrente": adiarRecorrente(id); break;
+      case "excluir-recorrente": excluirRecorrente(id); break;
     }
   });
 

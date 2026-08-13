@@ -89,6 +89,54 @@ CREATE TABLE IF NOT EXISTS congelados (
   quantidade NUMERIC DEFAULT 0
 );
 
+-- Lançamentos financeiros. Esta é a única fonte da verdade do dinheiro:
+-- estoque e encomendas não alteram estes números por conta própria, só
+-- criam lançamentos quando você manda de propósito.
+--
+-- tipo      'entrada' ou 'saida'
+-- categoria id definido em js/config.js, que carrega a natureza:
+--           operacional  -> despesa, reduz o lucro
+--           investimento -> sai do caixa, fora da margem
+--           retirada     -> sai do caixa e não é despesa (lucro distribuído)
+--           venda        -> entrada que conta como faturamento
+--           aporte       -> entrada que NÃO é faturamento
+-- origem    'manual', 'estoque' ou 'pedido' — só para você saber de onde
+--           veio. Não cria vínculo: apagar a compra lá não mexe aqui.
+CREATE TABLE IF NOT EXISTS financeiro (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  data DATE NOT NULL DEFAULT CURRENT_DATE,
+  tipo TEXT NOT NULL,
+  valor NUMERIC NOT NULL DEFAULT 0,
+  categoria TEXT NOT NULL,
+  descricao TEXT,
+  forma TEXT,
+  origem TEXT DEFAULT 'manual',
+  created_at TIMESTAMPTZ DEFAULT now()
+);
+
+-- Contas que se repetem todo mês. Guardam só o lembrete: nada é lançado
+-- sozinho, porque o valor da conta muda de um mês para o outro.
+-- ultimo_lancamento marca o mês já resolvido, para o aviso sumir.
+CREATE TABLE IF NOT EXISTS recorrentes (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  descricao TEXT NOT NULL,
+  tipo TEXT NOT NULL DEFAULT 'saida',
+  valor NUMERIC DEFAULT 0,
+  categoria TEXT NOT NULL,
+  dia INTEGER NOT NULL DEFAULT 1,
+  ativo BOOLEAN DEFAULT true,
+  ultimo_lancamento DATE,
+  created_at TIMESTAMPTZ DEFAULT now()
+);
+
+-- Ajustes soltos do sistema, um por chave. Hoje guarda só o saldo inicial:
+-- chave 'saldoInicial', valor {"data": "2026-08-01", "valor": 1500}
+CREATE TABLE IF NOT EXISTS configuracoes (
+  chave TEXT PRIMARY KEY,
+  valor JSONB,
+  created_at TIMESTAMPTZ DEFAULT now()
+);
+
 
 -- ------------------------------------------------------------
 -- 2. AJUSTES PARA BANCOS QUE JÁ EXISTEM
@@ -112,6 +160,10 @@ ALTER TABLE encomendas
   ALTER COLUMN status
   SET DEFAULT '{"pago": false, "massaFeita": false, "assado": false, "entregue": false}'::jsonb;
 
+-- Marca que o valor do pedido já foi enviado ao financeiro, para o sistema
+-- não oferecer o lançamento duas vezes.
+ALTER TABLE encomendas ADD COLUMN IF NOT EXISTS "financeiroEnviado" BOOLEAN DEFAULT false;
+
 
 -- ------------------------------------------------------------
 -- 3. ÍNDICES
@@ -125,6 +177,9 @@ CREATE INDEX IF NOT EXISTS historico_quando_idx ON historico (quando DESC);
 -- Chave estrangeira não ganha índice sozinha no Postgres, e este
 -- ajuda tanto a busca por cliente quanto a exclusão de clientes.
 CREATE INDEX IF NOT EXISTS encomendas_cliente_idx ON encomendas (cliente_id);
+
+-- O financeiro e sempre lido por intervalo de datas.
+CREATE INDEX IF NOT EXISTS financeiro_data_idx ON financeiro (data DESC);
 
 
 -- ------------------------------------------------------------
@@ -142,7 +197,7 @@ DO $$
 DECLARE
   tabela text;
 BEGIN
-  FOREACH tabela IN ARRAY ARRAY['itens', 'receitas', 'clientes', 'encomendas', 'historico', 'congelados']
+  FOREACH tabela IN ARRAY ARRAY['itens', 'receitas', 'clientes', 'encomendas', 'historico', 'congelados', 'financeiro', 'recorrentes', 'configuracoes']
   LOOP
     EXECUTE format('ALTER TABLE %I ENABLE ROW LEVEL SECURITY', tabela);
 
