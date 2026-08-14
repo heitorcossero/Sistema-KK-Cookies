@@ -250,13 +250,15 @@ export async function carregar() {
       unidade: r.unidade || "g"
     }));
     if (veio(enc, "encomendas")) state.encomendas = enc.data.map(e => ({ ...e, valorTotal: Number(e.valor_total), clienteId: e.cliente_id, dataEntrega: e.data_entrega }));
-    if (veio(vend, "vendas")) state.vendas = vend.data.map(v => ({ ...v, valor: Number(v.valor), custo: Number(v.custo) || 0 }));
+    if (veio(vend, "vendas")) state.vendas = vend.data.map(v => ({ ...v, valor: Number(v.valor), custo: Number(v.custo) || 0, gorjeta: Number(v.gorjeta) || 0 }));
     if (veio(hist, "historico")) state.historico = hist.data;
     if (veio(cong, "congelados")) {
       state.congelados = {};
       cong.data.forEach(c => { state.congelados[c.receita_id] = Number(c.quantidade); });
     }
-    if (veio(fin, "financeiro")) state.financeiro = fin.data.map(l => ({ ...l, valor: Number(l.valor) }));
+    if (veio(fin, "financeiro")) state.financeiro = fin.data.map(l => ({
+      ...l, valor: Number(l.valor), gorjeta: Number(l.gorjeta) || 0, itens: l.itens || []
+    }));
     if (veio(recor, "recorrentes")) state.recorrentes = recor.data.map(r => ({ ...r, valor: Number(r.valor), dia: Number(r.dia) }));
     if (veio(conf, "configuracoes")) {
       state.config = {};

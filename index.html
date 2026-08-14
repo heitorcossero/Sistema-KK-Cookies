@@ -327,15 +327,16 @@
             <div id="venda-itens-container" class="enc-linhas-editor"></div>
             <button type="button" id="btn-add-item-venda" class="btn btn-ghost">Adicionar sabor</button>
 
-            <div class="grid-2">
+            <div class="grid-3">
               <label>
-                <span>Quanto você recebeu</span>
+                <span>Recebido pelos cookies</span>
                 <input type="number" id="venda-valor" step="any" min="0" placeholder="R$ 0,00" required />
                 <small class="campo-dica hidden" id="venda-dica-total">
                   <span id="venda-total-sugerido"></span>
                   <button type="button" class="btn-mini" id="btn-total-venda">Usar o preço de tabela</button>
                 </small>
               </label>
+              <label><span>Gorjeta (se teve)</span><input type="number" id="venda-gorjeta" step="any" min="0" placeholder="R$ 0,00" /></label>
               <label><span>Forma de pagamento</span><select id="venda-forma"></select></label>
             </div>
 
@@ -454,6 +455,15 @@
             <div id="fin-a-receber"></div>
           </section>
         </div>
+
+        <section class="card card-wide">
+          <div class="card-head">
+            <h2>Cookies vendidos</h2>
+            <span class="soma" id="fin-sabores-total"></span>
+          </div>
+          <p class="card-nota">Sai do detalhe das entradas: quanto de cada sabor saiu no período e quanto ele trouxe. Só conta o que você detalhou no lançamento.</p>
+          <div id="fin-sabores"></div>
+        </section>
 
         <section class="card card-wide">
           <div class="card-head">
@@ -613,10 +623,27 @@
         <input type="hidden" id="lanc-id" />
         <input type="hidden" id="lanc-tipo" />
         <div class="grid-2">
-          <label><span>Valor</span><input type="number" id="lanc-valor" step="any" min="0" placeholder="R$ 0,00" required /></label>
+          <label>
+            <span id="lanc-valor-rotulo">Valor</span>
+            <input type="number" id="lanc-valor" step="any" min="0" placeholder="R$ 0,00" required />
+            <small class="campo-dica hidden" id="lanc-dica-tabela">
+              <span id="lanc-tabela-texto"></span>
+              <button type="button" class="btn-mini" id="btn-tabela-lanc">Usar</button>
+            </small>
+          </label>
           <label><span>Data</span><input type="date" id="lanc-data" required /></label>
         </div>
         <label><span>Categoria</span><select id="lanc-categoria" required></select></label>
+
+        <!-- Só aparece quando a entrada é de venda: saída não tem sabor nem gorjeta -->
+        <div id="lanc-venda" class="lanc-bloco hidden">
+          <span class="bloco-titulo">Quais cookies saíram</span>
+          <div id="lanc-itens-container" class="enc-linhas-editor"></div>
+          <button type="button" id="btn-add-item-lanc" class="btn btn-ghost">Adicionar sabor</button>
+          <label><span>Gorjeta (se teve)</span><input type="number" id="lanc-gorjeta" step="any" min="0" placeholder="R$ 0,00" /></label>
+          <p class="lanc-total hidden" id="lanc-total"></p>
+        </div>
+
         <label><span>Descrição</span><input type="text" id="lanc-descricao" placeholder="Ex.: compra no atacado" /></label>
         <label><span>Forma de pagamento</span><select id="lanc-forma"></select></label>
         <p class="lanc-aviso" id="lanc-aviso"></p>
@@ -636,10 +663,14 @@
       <form id="form-receber" class="form">
         <input type="hidden" id="receber-pedido-id" />
         <div class="grid-2">
-          <label><span>Valor recebido</span><input type="number" id="receber-valor" step="any" min="0" required /></label>
+          <label><span>Valor dos cookies</span><input type="number" id="receber-valor" step="any" min="0" required /></label>
           <label><span>Data</span><input type="date" id="receber-data" required /></label>
         </div>
-        <label><span>Forma de pagamento</span><select id="receber-forma"></select></label>
+        <div class="grid-2">
+          <label><span>Gorjeta (se teve)</span><input type="number" id="receber-gorjeta" step="any" min="0" placeholder="R$ 0,00" /></label>
+          <label><span>Forma de pagamento</span><select id="receber-forma"></select></label>
+        </div>
+        <p id="receber-itens" class="receber-itens"></p>
         <p class="lanc-aviso" id="receber-aviso"></p>
         <div class="modal-acoes">
           <button type="button" class="btn btn-ghost" id="receber-pular">Agora não</button>

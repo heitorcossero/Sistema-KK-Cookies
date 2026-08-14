@@ -5,7 +5,8 @@ import { desenharGraficoFaturamento, desenharFluxoCaixa } from "./chart.js";
 import {
   PERIODOS, intervaloDoPeriodo, nomeDoPeriodo, resumoFinanceiro, saldoEmCaixa,
   porCategoria, fluxoDiario, saldoAntesDe, aReceber, recorrentesPendentes,
-  vencimentoNesteMes, hojeChave, resumoVenda, mediaPorSaida, vendasDoPeriodo
+  vencimentoNesteMes, hojeChave, resumoVenda, mediaPorSaida, vendasDoPeriodo,
+  porSabor, descreverItens, unidadesDe
 } from "./finance.js";
 import {
   escapeHtml, formatarMoeda, formatarMoedaLonga, formatarMoedaExata, formatarQtd,
@@ -156,6 +157,8 @@ function renderFinanceiro() {
   if (detalhe) {
     const partes = [];
     if (r.faturamento) partes.push(`<span><em>Faturamento</em> ${formatarMoeda(r.faturamento)}</span>`);
+    if (r.unidades) partes.push(`<span><em>Cookies vendidos</em> ${r.unidades} un · ${formatarMoeda(r.precoMedioCookie)} cada</span>`);
+    if (r.gorjetas) partes.push(`<span><em>Gorjetas</em> ${formatarMoeda(r.gorjetas)}</span>`);
     if (r.despesas) partes.push(`<span><em>Despesas</em> ${formatarMoeda(r.despesas)}</span>`);
     if (r.investimentos) partes.push(`<span><em>Investimentos</em> ${formatarMoeda(r.investimentos)}</span>`);
     if (r.retiradas) partes.push(`<span><em>Retiradas de lucro</em> ${formatarMoeda(r.retiradas)}</span>`);
@@ -169,9 +172,39 @@ function renderFinanceiro() {
   setTexto("fin-periodo-rotulo", `${formatarDataCurta(inicio)} a ${formatarDataCurta(fim)}`);
 
   renderCategoriasFinanceiro(r);
+  renderSaboresFinanceiro(r);
   renderRecorrentes();
   renderAReceber();
   renderExtratoFinanceiro(r.lista);
+}
+
+// Quanto de cada sabor saiu no período. Só enxerga o que estiver detalhado no
+// lançamento — por isso o vazio explica onde se preenche isso.
+function renderSaboresFinanceiro(r) {
+  const box = el("fin-sabores");
+  const total = el("fin-sabores-total");
+  if (!box) return;
+
+  const sabores = porSabor(r.lista);
+  if (total) total.textContent = r.unidades ? `${r.unidades} un no período` : "";
+
+  if (!sabores.length) {
+    box.innerHTML = vazio(
+      "Nenhuma entrada detalhada",
+      "Ao registrar uma entrada de venda, diga o sabor e a quantidade: é daí que sai este quadro."
+    );
+    return;
+  }
+
+  const maior = sabores[0].unidades || 1;
+  box.innerHTML = sabores.map(s => `
+    <div class="sabor-row">
+      <div class="sabor-topo">
+        <span class="sabor-nome">${escapeHtml(s.nome)}</span>
+        <span class="sabor-qtd">${s.unidades} un · ${formatarMoeda(s.valor)}</span>
+      </div>
+      <div class="sabor-trilha"><div class="sabor-barra" style="width:${Math.max(4, (s.unidades / maior) * 100)}%"></div></div>
+    </div>`).join("");
 }
 
 function renderCategoriasFinanceiro(r) {
@@ -273,10 +306,22 @@ function renderExtratoFinanceiro(lista) {
         const entrada = l.tipo === "entrada";
         const origem = ORIGEM_LANCAMENTO[l.origem]
           ? `<span class="tag-origem">${ORIGEM_LANCAMENTO[l.origem]}</span>` : "";
+
+        // O detalhe da venda em uma linha só: o que saiu e quanto foi gorjeta.
+        const sabores = descreverItens(l);
+        const unidades = unidadesDe(l);
+        const gorjeta = Number(l.gorjeta) || 0;
+        const pedacos = [];
+        if (sabores) pedacos.push(`${escapeHtml(sabores)} · ${unidades} un`);
+        if (gorjeta > 0) pedacos.push(`inclui ${formatarMoeda(gorjeta)} de gorjeta`);
+        const detalhe = pedacos.length
+          ? `<span class="mov-detalhe">${pedacos.join(" · ")}</span>` : "";
+
         return `<li>
           <span class="mov-icone ${entrada ? "producao" : "compra"}" aria-hidden="true">${entrada ? SETA_ENTRADA : SETA_SAIDA}</span>
           <span class="mov-corpo">
             <span class="mov-texto">${escapeHtml(l.descricao || nomeCategoria(l.categoria))} ${origem}</span>
+            ${detalhe}
             <span class="mov-quando">${formatarDataCurta(l.data)} · ${escapeHtml(nomeCategoria(l.categoria))}${l.forma ? ` · ${escapeHtml(nomeForma(l.forma))}` : ""}</span>
           </span>
           <span class="mov-valor ${entrada ? "pos" : "neg"}">${entrada ? "+" : "−"}${formatarMoeda(l.valor)}</span>
@@ -293,7 +338,10 @@ function renderExtratoFinanceiro(lista) {
 export function atualizarCategorias(idSelect, tipo, valorAtual = "") {
   const sel = el(idSelect);
   if (!sel) return;
-  const lista = CATEGORIAS[tipo] || [];
+  // Categoria oculta (a gorjeta virou campo, não categoria) sai da lista, mas
+  // continua aparecendo quando é a do lançamento que você está editando —
+  // senão editar um lançamento antigo trocaria a categoria dele sem avisar.
+  const lista = (CATEGORIAS[tipo] || []).filter(c => !c.oculta || c.id === valorAtual);
   sel.innerHTML = '<option value="">Selecione…</option>' +
     lista.map(c => `<option value="${c.id}">${escapeHtml(c.nome)}</option>`).join("");
   if (valorAtual) sel.value = valorAtual;
@@ -592,8 +640,10 @@ function cardVenda(v) {
   const custo = Number(v.custo) || r.custo;
   const congelado = { ...r, custo, sobra: r.valor - custo, margem: r.valor > 0 ? (r.valor - custo) / r.valor : 0 };
 
+  const gorjeta = Number(v.gorjeta) || 0;
   const etiquetas = [
     v.forma ? escapeHtml(nomeForma(v.forma)) : "",
+    gorjeta > 0 ? `+ ${formatarMoeda(gorjeta)} de gorjeta` : "",
     v.baixou_freezer ? "saiu do freezer" : "",
     v.financeiro_enviado ? "no financeiro" : "fora do financeiro"
   ].filter(Boolean).map(t => `<span class="tag-origem">${t}</span>`).join(" ");
@@ -656,6 +706,7 @@ function renderVendas() {
   const totalMes = doMes.reduce((t, v) => t + (Number(v.valor) || 0), 0);
   const unidadesMes = doMes.reduce((t, v) => t + (v.itens || []).reduce((s, i) => s + (Number(i.quantidade) || 0), 0), 0);
   const custoMes = doMes.reduce((t, v) => t + (Number(v.custo) || 0), 0);
+  const gorjetasMes = doMes.reduce((t, v) => t + (Number(v.gorjeta) || 0), 0);
 
   const elTotal = el("venda-mes-total");
   if (elTotal) elTotal.textContent = doMes.length ? `${doMes.length} saída${doMes.length > 1 ? "s" : ""}` : "";
@@ -667,7 +718,9 @@ function renderVendas() {
     const numero = (rot, valor, extra = "") =>
       `<div class="venda-numero"><span class="rotulo">${rot}</span><strong>${valor}</strong>${extra ? `<span class="extra">${extra}</span>` : ""}</div>`;
     boxMes.innerHTML = doMes.length
-      ? numero("Recebido", formatarMoeda(totalMes), `média de ${formatarMoeda(totalMes / doMes.length)} por saída`)
+      ? numero("Recebido", formatarMoeda(totalMes),
+          `média de ${formatarMoeda(totalMes / doMes.length)} por saída`
+          + (gorjetasMes > 0 ? ` · mais ${formatarMoeda(gorjetasMes)} de gorjeta` : ""))
         + numero("Cookies", `${unidadesMes} un`, unidadesMes ? `${formatarMoeda(totalMes / unidadesMes)} cada` : "")
         + numero("Ingredientes", formatarMoeda(custoMes))
         + numero("Sobra", formatarMoeda(totalMes - custoMes), totalMes > 0 ? `${(((totalMes - custoMes) / totalMes) * 100).toFixed(0)}% do recebido` : "")

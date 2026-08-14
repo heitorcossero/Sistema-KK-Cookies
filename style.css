@@ -867,6 +867,39 @@ h1, h2, h3, h4 {
   border-radius: var(--r-sm);
 }
 
+/* detalhe da venda dentro do lançamento: sabores, quantidade e gorjeta */
+.lanc-bloco {
+  display: flex;
+  flex-direction: column;
+  gap: var(--s3);
+  padding: var(--s4);
+  background: var(--cacau-800);
+  border: 1px solid var(--linha);
+  border-radius: var(--r-md);
+}
+
+.lanc-bloco .bloco-titulo {
+  font-size: 0.68rem;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--tinta-3);
+}
+
+/* soma que aparece quando há gorjeta — o número que bate com o bolso */
+.lanc-total {
+  margin: 0;
+  font-size: 0.78rem;
+  font-weight: 600;
+  color: var(--biscoito);
+}
+
+.receber-itens {
+  margin: 0;
+  font-size: 0.76rem;
+  color: var(--tinta-3);
+}
+
 .modal-largo { max-width: 460px; }
 
 .modal-card .form { text-align: left; }
@@ -920,6 +953,16 @@ h1, h2, h3, h4 {
   margin-top: 1px;
   font-size: 0.72rem;
   color: var(--tinta-3);
+}
+
+/* o que a entrada representa: sabores, unidades e gorjeta */
+.mov-detalhe {
+  display: block;
+  margin-top: 2px;
+  font-size: 0.74rem;
+  font-weight: 600;
+  color: var(--biscoito);
+  overflow-wrap: anywhere;
 }
 
 .mov-valor {

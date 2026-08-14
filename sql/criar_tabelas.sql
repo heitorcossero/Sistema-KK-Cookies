@@ -231,6 +231,23 @@ ALTER TABLE receitas ADD COLUMN IF NOT EXISTS item_id UUID REFERENCES itens(id) 
 ALTER TABLE receitas ADD COLUMN IF NOT EXISTS unidade TEXT DEFAULT 'g';
 UPDATE receitas SET tipo = 'cookie' WHERE tipo IS NULL;
 
+-- A entrada de dinheiro passou a dizer o que foi vendido e quanto veio de
+-- gorjeta. Antes a gorjeta virava um lançamento separado, o que partia em
+-- dois o dinheiro de uma venda só.
+--
+-- itens    [{ "receitaId": "uuid", "quantidade": 12 }, ...] — só nas entradas
+--          de venda; saída não tem sabor.
+-- gorjeta  quanto do valor foi gorjeta. Está DENTRO de valor, não somado a
+--          ele: valor continua sendo tudo o que entrou no caixa, e a gorjeta
+--          é a parte que não é preço de cookie.
+ALTER TABLE financeiro ADD COLUMN IF NOT EXISTS itens JSONB DEFAULT '[]'::jsonb;
+ALTER TABLE financeiro ADD COLUMN IF NOT EXISTS gorjeta NUMERIC DEFAULT 0;
+
+-- Na venda avulsa a gorjeta fica FORA de valor: ali o número mede cookie
+-- vendido, e gorjeta não tem preço de tabela nem custo de massa. No caixa as
+-- duas entram juntas, no mesmo lançamento do financeiro.
+ALTER TABLE vendas ADD COLUMN IF NOT EXISTS gorjeta NUMERIC DEFAULT 0;
+
 
 -- ------------------------------------------------------------
 -- 3. ÍNDICES

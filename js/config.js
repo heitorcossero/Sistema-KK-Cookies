@@ -35,11 +35,19 @@ export const CATEGORIAS = {
   entrada: [
     { id: "venda-pedido", nome: "Venda de pedido",  natureza: "venda" },
     { id: "venda-avulsa", nome: "Venda avulsa",     natureza: "venda" },
-    { id: "extra",        nome: "Extra e gorjeta",  natureza: "venda" },
+    // Gorjeta deixou de ser categoria: ela agora é um campo dentro da própria
+    // entrada da venda, porque lançá-la à parte partia em dois o dinheiro de
+    // uma coisa só. A categoria continua aqui, escondida do formulário, para
+    // que lançamentos antigos não apareçam como "Sem categoria".
+    { id: "extra",        nome: "Extra e gorjeta",  natureza: "venda", oculta: true },
     { id: "aporte",       nome: "Aporte do dono",   natureza: "aporte" },
     { id: "outros-e",     nome: "Outras entradas",  natureza: "venda" }
   ]
 };
+
+// Entradas que representam cookie saindo — as únicas em que faz sentido dizer
+// o sabor, a quantidade e a gorjeta.
+export const ehCategoriaDeVenda = (id) => naturezaCategoria(id) === "venda";
 
 export const FORMAS_PAGAMENTO = [
   { id: "pix", nome: "Pix" },

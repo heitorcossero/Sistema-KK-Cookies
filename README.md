@@ -11,15 +11,23 @@ Sistema interno da KK Cookies para controle de estoque, receitas, encomendas e c
 - **Estoque** — entrada de compras (com custo médio ponderado), produção de receitas (baixa os ingredientes e já guarda os cookies no freezer, ou o recheio pronto no estoque), freezer e ajustes manuais. Ao registrar a produção você informa quantos cookies a fornada rendeu de verdade — o campo já vem preenchido com o previsto pela receita, mas quem manda no freezer é o número real. Tudo com histórico e botão de desfazer.
 - **Pedidos** — encomendas com esteira de produção (massa → assado → entregue), selo de pagamento à parte, valor editável para desconto ou entrega, e lista de compras consolidada que desconta estoque, freezer e o que já teve a massa feita. Marcar como entregue baixa os cookies do freezer.
 - **Vendas** — o outro jeito de vender: você assa, sai com os cookies e volta com dinheiro, sem cliente e sem prazo. Uma tela só, preenchida na volta. Ver [Venda avulsa](#venda-avulsa).
-- **Financeiro** — a única fonte da verdade do dinheiro: entradas, saídas, saldo em caixa, fluxo do período, gastos por categoria, contas fixas e extrato. Estoque e Encomendas **não** alimentam estes números sozinhos; só criam lançamentos quando você marca a opção de enviar. Categorias carregam a natureza do dinheiro (despesa, investimento, retirada de lucro, venda, aporte), que é o que separa o caixa do lucro.
+- **Financeiro** — a única fonte da verdade do dinheiro: entradas, saídas, saldo em caixa, fluxo do período, gastos por categoria, cookies vendidos por sabor, contas fixas e extrato. Estoque e Encomendas **não** alimentam estes números sozinhos; só criam lançamentos quando você marca a opção de enviar. Categorias carregam a natureza do dinheiro (despesa, investimento, retirada de lucro, venda, aporte), que é o que separa o caixa do lucro. Ver [Entrada detalhada e gorjeta](#entrada-detalhada-e-gorjeta).
 - **Clientes** — cadastro com WhatsApp, notas, histórico de pedidos e total já comprado.
 - **Cadastros** — insumos e receitas (ingredientes, preço de venda de cada cookie e rendimento médio esperado, que serve de estimativa para a lista de compras e de sugestão na produção; o card mostra ao lado quanto as últimas fornadas renderam de verdade).
+
+## Entrada detalhada e gorjeta
+
+Uma entrada de dinheiro não é só um número: ela é tanto cookie de tal sabor saindo. Ao registrar uma entrada de venda, o lançamento pede **quais sabores e quantos** — e é daí que sai o card *Cookies vendidos*, o preço médio por unidade e a soma por sabor no período. O preço de tabela dos sabores escolhidos aparece como sugestão, mas quem manda é o que você recebeu: a diferença é o desconto que você deu.
+
+A **gorjeta tem campo próprio dentro do mesmo lançamento**, e não uma linha à parte. Quem recebeu R$ 120 pelos cookies e R$ 10 de agrado recebeu uma vez, de uma pessoa, no mesmo dia — partir isso em dois lançamentos fazia o extrato contar duas entradas para uma entrega só. No caixa os dois valores entram somados; guardados separados, a gorjeta não vira preço de cookie e não distorce o preço médio da unidade.
+
+Isso vale nos três caminhos em que dinheiro entra: o lançamento manual do Financeiro, o recebimento de um pedido (que já leva junto os sabores da encomenda) e a venda avulsa. Na aba Vendas a gorjeta fica fora do valor da venda de propósito — ali o número mede cookie vendido, e gorjeta não tem preço de tabela nem custo de massa.
 
 ## Venda avulsa
 
 Um pedido tem cliente, quantidade combinada, data marcada e o dinheiro depois. Uma venda avulsa não tem nada disso: você chuta a quantidade, sai para vender e recebe na hora. São duas coisas diferentes, e por isso cada uma tem a sua aba.
 
-O registro é feito de uma vez, na volta: o dia, onde foi, quanto saiu de cada sabor e **quanto você recebeu de verdade**. O valor começa seguindo o preço de tabela das receitas e para de ser sobrescrito assim que você digita — é essa diferença que revela o desconto que você deu na rua, e que numa linha solta de faturamento ficaria invisível.
+O registro é feito de uma vez, na volta: o dia, onde foi, quanto saiu de cada sabor, **quanto você recebeu de verdade** e a gorjeta, se teve. O valor começa seguindo o preço de tabela das receitas e para de ser sobrescrito assim que você digita — é essa diferença que revela o desconto que você deu na rua, e que numa linha solta de faturamento ficaria invisível.
 
 Antes de confirmar, a tela mostra o resultado da saída: cookies vendidos, preço médio praticado contra o de tabela, custo dos ingredientes e a sobra. *Sobra* não é lucro: só os ingredientes entram nessa conta, porque gás, embalagem e transporte já viraram despesa no Financeiro quando foram pagos, e contá-los de novo tiraria o mesmo dinheiro duas vezes. O custo fica congelado no dia da venda, para a margem daquela saída continuar sendo a daquele dia mesmo depois de o insumo mudar de preço.
 

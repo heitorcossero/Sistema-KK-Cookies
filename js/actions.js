@@ -2,8 +2,8 @@
 import { state, salvar, apagarDaNuvem, calcularCustoReceita, ehRecheio, receitaDoInsumo, migrarParaNuvem, montarBackup, restaurarBackup, sincronizarPendentes } from "./data.js";
 import { renderizar, novaLinhaIngrediente, novaLinhaProduto, novaLinhaVenda, htmlPreviaVenda, filtroFinanceiro, atualizarCategorias } from "./render.js";
 import { uid, toast, confirmar, escapeHtml, formatarMoeda, formatarQtd, dataDoDia, isoDeHojeLocal } from "./utils.js";
-import { CATEGORIAS, FORMAS_PAGAMENTO, nomeCategoria } from "./config.js";
-import { PERIODOS, hojeChave, vencimentoNesteMes, resumoVenda } from "./finance.js";
+import { CATEGORIAS, FORMAS_PAGAMENTO, nomeCategoria, ehCategoriaDeVenda } from "./config.js";
+import { PERIODOS, hojeChave, vencimentoNesteMes, resumoVenda, descreverItens } from "./finance.js";
 import { logout } from "./auth.js";
 
 const el = (id) => document.getElementById(id);
@@ -178,16 +178,20 @@ function cancelarEncomenda() {
 
 // Cria o lançamento a partir de um envio do estoque ou de um pedido.
 // É uma cópia do valor, não um espelho: desfazer a compra lá não mexe aqui.
-async function registrarLancamento({ tipo, valor, categoria, descricao, data, forma = "", origem = "manual" }) {
+async function registrarLancamento({ tipo, valor, categoria, descricao, data, forma = "", origem = "manual", itens = [], gorjeta = 0 }) {
   const lanc = {
     id: uid(),
     data: data || hojeChave(),
     tipo,
+    // valor é sempre o total que passou pelo caixa, gorjeta inclusa.
     valor: Number(valor) || 0,
     categoria,
     descricao: descricao || "",
     forma: forma || null,
-    origem
+    origem,
+    // Detalhe da venda: o que saiu e quanto veio de gorjeta dentro do valor.
+    itens: itens || [],
+    gorjeta: Number(gorjeta) || 0
   };
   state.financeiro.unshift(lanc);
   await salvar("financeiro", lanc);
@@ -196,19 +200,29 @@ async function registrarLancamento({ tipo, valor, categoria, descricao, data, fo
 
 function abrirLancamento(tipo, lancamento = null) {
   const editando = !!lancamento;
+  const gorjeta = Number(lancamento?.gorjeta) || 0;
+
   el("lanc-id").value = editando ? lancamento.id : "";
   el("lanc-tipo").value = tipo;
   el("lanc-titulo").textContent = editando
     ? "Editar lançamento"
     : (tipo === "entrada" ? "Nova entrada" : "Nova saída");
   el("lanc-salvar").textContent = editando ? "Salvar alterações" : "Salvar lançamento";
-  el("lanc-valor").value = editando ? lancamento.valor : "";
+  // No campo vai o dinheiro dos cookies; a gorjeta tem campo próprio e volta a
+  // se juntar ao valor na hora de salvar.
+  el("lanc-valor").value = editando ? Math.max(0, (Number(lancamento.valor) || 0) - gorjeta) : "";
+  el("lanc-gorjeta").value = gorjeta > 0 ? gorjeta : "";
   el("lanc-data").value = editando ? lancamento.data : hojeChave();
   el("lanc-descricao").value = editando ? (lancamento.descricao || "") : "";
   el("lanc-forma").value = editando ? (lancamento.forma || "") : "";
 
+  const caixa = el("lanc-itens-container");
+  caixa.innerHTML = "";
+  (lancamento?.itens || []).forEach(i => caixa.appendChild(novaLinhaVenda(i)));
+
   atualizarCategorias("lanc-categoria", tipo, editando ? lancamento.categoria : "");
   mostrarAvisoNatureza();
+  atualizarBlocoVenda();
 
   el("modal-lancamento").classList.remove("hidden");
   el("lanc-valor").focus();
@@ -218,7 +232,58 @@ function fecharLancamento() {
   el("modal-lancamento").classList.add("hidden");
   el("form-lancamento").reset();
   el("lanc-id").value = "";
+  el("lanc-itens-container").innerHTML = "";
+  el("lanc-dica-tabela").classList.add("hidden");
+  el("lanc-total").classList.add("hidden");
   delete el("form-lancamento").dataset.recorrenteId;
+}
+
+// Os sabores digitados no lançamento, somando linhas repetidas do mesmo sabor.
+function itensDoLancamento() {
+  const mapa = new Map();
+  document.querySelectorAll("#lanc-itens-container .enc-linha-row").forEach(row => {
+    const receitaId = row.querySelector(".enc-prod-select")?.value;
+    const quantidade = Number(row.querySelector(".enc-prod-qtd")?.value);
+    if (!receitaId || !(quantidade > 0)) return;
+    mapa.set(receitaId, (mapa.get(receitaId) || 0) + quantidade);
+  });
+  return [...mapa].map(([receitaId, quantidade]) => ({ receitaId, quantidade }));
+}
+
+// Mostra o bloco de detalhe só onde ele faz sentido (entrada de venda) e
+// mantém as duas dicas em dia: o preço de tabela dos sabores escolhidos e o
+// total que realmente entrou, já com a gorjeta somada.
+function atualizarBlocoVenda() {
+  const bloco = el("lanc-venda");
+  if (!bloco) return;
+
+  const eVenda = el("lanc-tipo").value === "entrada" && ehCategoriaDeVenda(el("lanc-categoria").value);
+  bloco.classList.toggle("hidden", !eVenda);
+  el("lanc-valor-rotulo").textContent = eVenda ? "Valor dos cookies" : "Valor";
+
+  if (!eVenda) {
+    el("lanc-dica-tabela").classList.add("hidden");
+    el("lanc-total").classList.add("hidden");
+    return;
+  }
+
+  if (!el("lanc-itens-container").children.length) {
+    el("lanc-itens-container").appendChild(novaLinhaVenda());
+  }
+
+  const itens = itensDoLancamento();
+  const r = resumoVenda(itens, Number(el("lanc-valor").value) || 0);
+  const diferente = r.tabela > 0 && Math.abs(r.valor - r.tabela) > 0.005;
+  el("lanc-tabela-texto").textContent = diferente
+    ? `${r.unidades} un · tabela ${formatarMoeda(r.tabela)}` : "";
+  el("lanc-dica-tabela").classList.toggle("hidden", !diferente);
+
+  const gorjeta = Number(el("lanc-gorjeta").value) || 0;
+  const total = el("lanc-total");
+  total.textContent = gorjeta > 0
+    ? `Total recebido: ${formatarMoeda(r.valor + gorjeta)} — ${formatarMoeda(r.valor)} de cookie + ${formatarMoeda(gorjeta)} de gorjeta`
+    : "";
+  total.classList.toggle("hidden", !total.textContent);
 }
 
 // Explica na hora o efeito da categoria escolhida, para não haver surpresa
@@ -249,10 +314,18 @@ function abrirRecebimento(enc) {
   const cliente = state.clientes.find(c => c.id === enc.clienteId);
   el("receber-pedido-id").value = enc.id;
   el("receber-texto").textContent =
-    `${enc.titulo || "Pedido"} · ${cliente?.nome || "Cliente"}. Se receber mais que o valor do pedido, a diferença vira um lançamento de extra.`;
+    `${enc.titulo || "Pedido"} · ${cliente?.nome || "Cliente"}. Se veio um agrado além do preço, coloque no campo Gorjeta — vai tudo num lançamento só.`;
   el("receber-valor").value = Number(enc.valorTotal) || 0;
+  el("receber-gorjeta").value = "";
   el("receber-data").value = hojeChave();
   el("receber-forma").value = "";
+
+  // Os sabores do pedido vão junto para o financeiro: é o que faz a entrada
+  // saber quantos cookies ela representa, sem você digitar de novo.
+  const itens = descreverItens({ itens: enc.produtos || [] });
+  el("receber-itens").textContent = itens ? `Vai junto no lançamento: ${itens}.` : "";
+  el("receber-itens").classList.toggle("hidden", !itens);
+
   el("receber-aviso").classList.add("hidden");
   el("modal-receber").classList.remove("hidden");
   el("receber-valor").focus();
@@ -1252,6 +1325,10 @@ function configurarFormularios() {
     const lugar = el("venda-lugar").value.trim();
     const baixar = el("venda-baixar-freezer").checked;
     const lancar = el("venda-lancar-financeiro").checked;
+    // A gorjeta fica fora do valor da venda de propósito: aqui o número mede
+    // cookie vendido, e gorjeta não tem preço de tabela nem custo de massa.
+    // No caixa ela entra junto, no mesmo lançamento.
+    const gorjeta = Number(el("venda-gorjeta").value) || 0;
     const r = resumoVenda(itens, valor);
 
     // Vender mais do que o freezer tem é comum e não é erro: parte da fornada
@@ -1275,6 +1352,7 @@ function configurarFormularios() {
       lugar: lugar || null,
       itens,
       valor,
+      gorjeta,
       forma: el("venda-forma").value || null,
       // O custo é congelado agora: o preço do insumo muda com o tempo e a
       // margem desta saída tem que continuar sendo a de hoje.
@@ -1301,7 +1379,7 @@ function configurarFormularios() {
 
     limparFormVenda();
     renderizar();
-    toast(`Venda registrada — ${r.unidades} un por ${formatarMoeda(valor)}.`);
+    toast(`Venda registrada — ${r.unidades} un por ${formatarMoeda(valor)}${gorjeta > 0 ? ` + ${formatarMoeda(gorjeta)} de gorjeta` : ""}.`);
 
     await salvar("vendas", venda);
     for (const recId of tocados) {
@@ -1313,9 +1391,10 @@ function configurarFormularios() {
     // vive por conta própria.
     if (lancar) {
       await registrarLancamento({
-        tipo: "entrada", valor, categoria: "venda-avulsa",
+        tipo: "entrada", valor: valor + gorjeta, categoria: "venda-avulsa",
         descricao: lugar ? `Venda avulsa · ${lugar}` : `Venda avulsa · ${r.unidades} un`,
-        data, forma: venda.forma, origem: "venda"
+        data, forma: venda.forma, origem: "venda",
+        itens, gorjeta
       });
       renderizar();
     }
@@ -1353,14 +1432,35 @@ function configurarFormularios() {
   el("btn-nova-entrada").onclick = () => abrirLancamento("entrada");
   el("btn-nova-saida").onclick = () => abrirLancamento("saida");
   el("lanc-cancelar").onclick = fecharLancamento;
-  el("lanc-categoria").onchange = mostrarAvisoNatureza;
+  el("lanc-categoria").onchange = () => { mostrarAvisoNatureza(); atualizarBlocoVenda(); };
   el("modal-lancamento").onclick = (e) => { if (e.target.id === "modal-lancamento") fecharLancamento(); };
+
+  el("lanc-itens-container").addEventListener("input", atualizarBlocoVenda);
+  el("lanc-itens-container").addEventListener("change", atualizarBlocoVenda);
+  el("lanc-valor").addEventListener("input", atualizarBlocoVenda);
+  el("lanc-gorjeta").addEventListener("input", atualizarBlocoVenda);
+  el("btn-add-item-lanc").onclick = () => {
+    el("lanc-itens-container").appendChild(novaLinhaVenda());
+  };
+  // Preenche o valor com o preço de tabela dos sabores escolhidos. Continua
+  // editável: desconto e arredondamento na hora da venda são a regra, não a
+  // exceção — o sistema sugere, você decide.
+  el("btn-tabela-lanc").onclick = () => {
+    const tabela = resumoVenda(itensDoLancamento(), 0).tabela;
+    if (tabela > 0) el("lanc-valor").value = tabela.toFixed(2);
+    atualizarBlocoVenda();
+  };
 
   aoEnviar("form-lancamento", async () => {
     const idEdit = el("lanc-id").value;
     const tipo = el("lanc-tipo").value;
-    const valor = Number(el("lanc-valor").value);
     const categoria = el("lanc-categoria").value;
+    const eVenda = tipo === "entrada" && ehCategoriaDeVenda(categoria);
+    const cookies = Number(el("lanc-valor").value) || 0;
+    const gorjeta = eVenda ? (Number(el("lanc-gorjeta").value) || 0) : 0;
+    // O que entra no caixa é a soma: separá-los em dois lançamentos era
+    // justamente o que atrapalhava na hora de conferir o dia.
+    const valor = cookies + gorjeta;
 
     if (!(valor > 0)) { toast("Informe um valor maior que zero.", true); return; }
     if (!categoria) { toast("Escolha a categoria do lançamento.", true); return; }
@@ -1371,7 +1471,9 @@ function configurarFormularios() {
       valor,
       categoria,
       descricao: el("lanc-descricao").value.trim(),
-      forma: el("lanc-forma").value || null
+      forma: el("lanc-forma").value || null,
+      itens: eVenda ? itensDoLancamento() : [],
+      gorjeta
     };
 
     if (idEdit) {
@@ -1398,57 +1500,56 @@ function configurarFormularios() {
   el("receber-pular").onclick = fecharRecebimento;
   el("modal-receber").onclick = (e) => { if (e.target.id === "modal-receber") fecharRecebimento(); };
 
-  el("receber-valor").oninput = () => {
+  const avisoRecebimento = () => {
     const enc = state.encomendas.find(x => x.id === el("receber-pedido-id").value);
-    const recebido = Number(el("receber-valor").value) || 0;
+    const cookies = Number(el("receber-valor").value) || 0;
+    const gorjeta = Number(el("receber-gorjeta").value) || 0;
     const total = Number(enc?.valorTotal) || 0;
     const aviso = el("receber-aviso");
-    const extra = recebido - total;
-    if (extra > 0.005) {
-      aviso.textContent = `Vai lançar ${formatarMoeda(total)} como venda e ${formatarMoeda(extra)} como extra.`;
-    } else if (extra < -0.005 && recebido > 0) {
-      aviso.textContent = `Recebimento parcial. Faltam ${formatarMoeda(-extra)} para fechar o pedido.`;
+    const diferenca = cookies - total;
+
+    if (diferenca > 0.005) {
+      aviso.textContent = `Isso é ${formatarMoeda(diferenca)} acima do preço do pedido. Se foi agrado, o lugar dele é o campo Gorjeta.`;
+    } else if (diferenca < -0.005 && cookies > 0) {
+      aviso.textContent = `Recebimento parcial. Faltam ${formatarMoeda(-diferenca)} para fechar o pedido.`;
+    } else if (gorjeta > 0) {
+      aviso.textContent = `Entra ${formatarMoeda(cookies + gorjeta)} no caixa, sendo ${formatarMoeda(gorjeta)} de gorjeta.`;
     } else {
       aviso.textContent = "";
     }
     aviso.classList.toggle("hidden", !aviso.textContent);
   };
+  el("receber-valor").oninput = avisoRecebimento;
+  el("receber-gorjeta").oninput = avisoRecebimento;
 
   aoEnviar("form-receber", async () => {
     const enc = state.encomendas.find(x => x.id === el("receber-pedido-id").value);
     if (!enc) { fecharRecebimento(); return; }
 
-    const recebido = Number(el("receber-valor").value);
-    if (!(recebido > 0)) { toast("Informe o valor recebido.", true); return; }
+    const cookies = Number(el("receber-valor").value) || 0;
+    const gorjeta = Number(el("receber-gorjeta").value) || 0;
+    if (!(cookies + gorjeta > 0)) { toast("Informe o valor recebido.", true); return; }
 
     const data = el("receber-data").value || hojeChave();
     const forma = el("receber-forma").value || null;
     const cliente = state.clientes.find(c => c.id === enc.clienteId);
     const nome = `${enc.titulo || "Pedido"} · ${cliente?.nome || "Cliente"}`;
-    const total = Number(enc.valorTotal) || 0;
 
-    // o que passar do valor do pedido vira extra, em lançamento separado,
-    // para o faturamento de venda não ficar inflado pela gorjeta
-    const venda = Math.min(recebido, total) || recebido;
+    // Um pedido, um lançamento — com os sabores e a gorjeta dentro dele. Antes
+    // a gorjeta virava uma linha à parte e o dia ficava com dois números para
+    // uma entrega só.
     await registrarLancamento({
-      tipo: "entrada", valor: venda, categoria: "venda-pedido",
-      descricao: nome, data, forma, origem: "pedido"
+      tipo: "entrada", valor: cookies + gorjeta, categoria: "venda-pedido",
+      descricao: nome, data, forma, origem: "pedido",
+      itens: enc.produtos || [], gorjeta
     });
-
-    const extra = recebido - total;
-    if (extra > 0.005) {
-      await registrarLancamento({
-        tipo: "entrada", valor: extra, categoria: "extra",
-        descricao: `Extra de ${cliente?.nome || "cliente"}`, data, forma, origem: "pedido"
-      });
-    }
 
     enc.financeiroEnviado = true;
     await salvar("encomendas", enc);
 
     fecharRecebimento();
     renderizar();
-    toast(extra > 0.005 ? "Recebimento e extra lançados!" : "Recebimento lançado!");
+    toast(gorjeta > 0 ? "Recebimento lançado, gorjeta inclusa!" : "Recebimento lançado!");
   });
 
   // --- contas fixas ---

@@ -107,6 +107,13 @@ export function saldoEmCaixa() {
 export function resumoFinanceiro(inicio, fim) {
   const lista = lancamentosDoPeriodo(inicio, fim);
 
+  // A gorjeta entra no caixa e no faturamento como sempre entrou — ela é
+  // dinheiro que ficou com você. O que muda é que agora dá para separá-la:
+  // ela não é preço de cookie e não pode inflar o preço médio da unidade.
+  const gorjetas = lista.reduce((acc, l) =>
+    l.tipo === "entrada" ? acc + (Number(l.gorjeta) || 0) : acc, 0);
+  const unidades = lista.reduce((acc, l) => acc + unidadesDe(l), 0);
+
   const faturamento = somaPor(lista, "entrada", ["venda"]);
   const aportes = somaPor(lista, "entrada", ["aporte"]);
   const despesas = somaPor(lista, "saida", ["operacional"]);
@@ -120,12 +127,63 @@ export function resumoFinanceiro(inicio, fim) {
   return {
     lista,
     faturamento, aportes, despesas, investimentos, retiradas,
-    entradas, saidas, lucro,
+    entradas, saidas, lucro, gorjetas, unidades,
     margem: faturamento > 0 ? lucro / faturamento : 0,
+    // Preço médio do cookie sem a gorjeta: gorjeta não é preço.
+    precoMedioCookie: unidades > 0 ? (faturamento - gorjetas) / unidades : 0,
     variacaoCaixa: entradas - saidas,
     qtdEntradas: lista.filter(l => l.tipo === "entrada").length,
     qtdSaidas: lista.filter(l => l.tipo === "saida").length
   };
+}
+
+// ------------------------------------------------------------
+// DETALHE DA ENTRADA: SABOR E QUANTIDADE
+//
+// Uma entrada de venda pode dizer o que saiu. O valor de cada sabor é
+// rateado pelo preço de tabela — é o único jeito honesto de dividir um
+// total que já veio com desconto embutido. A gorjeta fica de fora do rateio
+// de propósito: ela não foi paga por nenhum cookie em especial.
+// ------------------------------------------------------------
+
+export const unidadesDe = (l) =>
+  (l?.itens || []).reduce((acc, i) => acc + (Number(i.quantidade) || 0), 0);
+
+// Resume os itens de um lançamento em texto curto: "6 Ninho · 4 Nutella"
+export function descreverItens(l) {
+  return (l?.itens || [])
+    .map(i => {
+      const r = (state.receitas || []).find(x => x.id === i.receitaId);
+      return `${Number(i.quantidade) || 0} ${r?.nome || "Cookie"}`;
+    })
+    .join(" · ");
+}
+
+export function porSabor(lista) {
+  const mapa = {};
+  for (const l of lista) {
+    if (l.tipo !== "entrada" || !(l.itens || []).length) continue;
+
+    // Base do rateio: o dinheiro que veio de cookie, sem a gorjeta.
+    const base = Math.max(0, valorDe(l) - (Number(l.gorjeta) || 0));
+    const pesos = l.itens.map(i => {
+      const r = (state.receitas || []).find(x => x.id === i.receitaId);
+      const qtd = Number(i.quantidade) || 0;
+      return { i, qtd, peso: qtd * (Number(r?.precoUnitario) || 0), nome: r?.nome || "Cookie" };
+    });
+    const somaPeso = pesos.reduce((a, p) => a + p.peso, 0);
+    const somaQtd = pesos.reduce((a, p) => a + p.qtd, 0);
+
+    for (const p of pesos) {
+      if (!mapa[p.i.receitaId]) mapa[p.i.receitaId] = { receitaId: p.i.receitaId, nome: p.nome, unidades: 0, valor: 0 };
+      mapa[p.i.receitaId].unidades += p.qtd;
+      // Sem preço cadastrado em nenhum item, divide por unidade — melhor do
+      // que jogar tudo em um sabor só.
+      const fatia = somaPeso > 0 ? p.peso / somaPeso : (somaQtd > 0 ? p.qtd / somaQtd : 0);
+      mapa[p.i.receitaId].valor += base * fatia;
+    }
+  }
+  return Object.values(mapa).sort((a, b) => b.unidades - a.unidades);
 }
 
 // Quanto foi para cada categoria, do maior para o menor
